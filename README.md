@@ -1,6 +1,6 @@
 # opencode-go-usage (TUI plugin)
 
-OpenCode **Go / Go Plus** 구독 사용량을 TUI **사이드바**에 표시하는 CLI 플러그인.
+OpenCode **Go / Go Plus** 구독 중이라면 이 플러그인 하나로 사이드바에서 남은 사용량과 리셋 시각을 확인할 수 있다.
 
 ```
 5H   ▓▓▓▓▓░ 99% · 4h12m   ← 남은 99%, 5시간 창 리셋까지 4h12m
@@ -42,9 +42,9 @@ git clone https://github.com/<you>/opencode-go-usage \
   ~/.config/opencode/plugins/opencode-go-usage
 ```
 
-파일을 `<global-config>/plugins/<name>/tui.tsx` 형태로 두면 별도 cli.json 설정 없이 자동 로드됩니다.
+파일을 `<global-config>/plugins/<name>/tui.tsx` 형태로 두면 cli.json 설정을 건드릴 필요 없이 자동으로 로드된다.
 
-기존 `cli.json` 방식:
+`cli.json`에 직접 적는 방식:
 
 ```json
 {
@@ -65,13 +65,13 @@ git clone https://github.com/<you>/opencode-go-usage \
 | `refreshSec`    | `40`    | 갱신 주기(초), 최소 10                          |
 | `monthlyLimits` | —       | 모델별 월한도 수동 보정, 예 `{ "glm-5.3": 60 }` |
 
-## 데이터 방식 (중요)
+## 데이터 출처와 한계
 
-플러그인은 **로컬 서버(DB)의 세션/메시지 기록**에서 모델별 cost·시간을 읽어 근사 계산합니다.
+계산에 쓰는 건 **로컬 서버(DB)가 들고 있는 세션·메시지 기록**이다. 모델별 cost와 시각을 여기서 읽는다.
 
 - 다른 폴더(별도 서버 인스턴스/프로젝트)에서 쓴 세션은 합산에서 빠질 수 있음
 - 리셋 시각은 서버 공식 `resetsAt`이 아니라 위 창 기준의 근사치
-- 콘솔(Console → Usage)의 공식 잔량과 완전히 동일하진 않습니다
+- 콘솔(Console → Usage)의 공식 잔량과 완전히 같지는 않다
 
 ## 라이선스
 
