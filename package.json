@@ -27,6 +27,7 @@
   "files": [
     "tui.tsx",
     "README.md",
+    "README.ko.md",
     "LICENSE",
     "assets"
   ],
@@ -37,5 +38,9 @@
   "bugs": {
     "url": "https://github.com/HaYanJongSeong/opencode-go-usage/issues"
   },
-  "homepage": "https://github.com/HaYanJongSeong/opencode-go-usage#readme"
+  "homepage": "https://github.com/HaYanJongSeong/opencode-go-usage#readme",
+  "author": {
+    "name": "HaYanJongSeong",
+    "url": "https://github.com/HaYanJongSeong"
+  }
 }

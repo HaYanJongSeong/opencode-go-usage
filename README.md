@@ -1,50 +1,35 @@
 # opencode-go-usage (TUI plugin)
 
-OpenCode **Go / Go Plus** 구독 중이라면 이 플러그인 하나로 사이드바에서 남은 사용량과 리셋 시각을 확인할 수 있다.
+**English** | [한국어](README.ko.md)
+
+An [OpenCode](https://opencode.ai) CLI plugin that shows your **OpenCode Go / Go Plus** plan usage in the TUI **sidebar**: remaining usage, meter bars, and the time until each window resets.
 
 ```
-5H   ▓▓▓▓▓░ 99% · 4h12m   ← 남은 99%, 5시간 창 리셋까지 4h12m
-일   ▓▓▓▓▓░ 98% · 22h     ← 24h 기준
-주간  ▓▓▓▓▓░ 96% · 1d2h   ← 다음 월요일 00:00 기준
-월간  ▓▓▓▓▓░ 82% · 15d    ← 다음달 1일 00:00 기준
+5H   ▓▓▓▓▓░ 99% · 4h12m   ← 99% left, resets in 4h12m (5-hour window)
+일   ▓▓▓▓▓░ 98% · 22h     ← daily (24h rolling)
+주간  ▓▓▓▓▓░ 96% · 1d2h   ← weekly (next Monday 00:00)
+월간  ▓▓▓▓▓░ 82% · 15d    ← monthly (1st of next month 00:00)
 ```
 
-- **남은 사용량(%)** = Go 규칙 근사 (5H = 월한도의 20%, 주간 = 50%, 월간 = 100%)
-- 남은량 기준 색상: 초록(40%↑) / 노랑(40%↓) / 빨강(10%↓)
-- 40초마다 자동 갱신 (옵션으로 조정 가능)
-- `$` / 소계 없음 — % · 바 · 리셋시간만
+- Bars and `%` show **remaining quota**, using the Go rule of thumb (5-hour = 20% of the model's monthly limit, weekly = 50%, monthly = 100%)
+- Color by headroom: green (≥40%) / yellow (<40%) / red (≤10%)
+- Auto-refreshes every 40 seconds by default (configurable)
+- No dollar amounts, no grand total — just percentage, bar, and reset ETA per row
 
-## 설치
+Labels (`5H`, `일`, `주간`, `월간`) mean the 5-hour, daily, weekly, and monthly windows. They are kept in Korean to match the layout width; they do not switch with locale at the moment.
 
-### 1) npm (배포용)
+## Install (other machines)
 
-```sh
-npm i -g opencode-go-usage
-```
-
-`~/.config/opencode/cli.json`:
-
-```json
-{
-  "plugins": [
-    {
-      "package": "opencode-go-usage",
-      "options": { "plan": "go", "refreshSec": 40 }
-    }
-  ]
-}
-```
-
-### 2) GitHub 클론 (로컬)
+**One-liner via git — no cli.json edits, no node_modules:**
 
 ```sh
 git clone https://github.com/HaYanJongSeong/opencode-go-usage \
   ~/.config/opencode/plugins/opencode-go-usage
 ```
 
-파일을 `<global-config>/plugins/<name>/tui.tsx` 형태로 두면 cli.json 설정을 건드릴 필요 없이 자동으로 로드된다.
+OpenCode discovers plugins under `<global-config>/plugins/<name>/tui.tsx` automatically, so this path alone is enough.
 
-`cli.json`에 직접 적는 방식:
+If you prefer `~/.config/opencode/cli.json`:
 
 ```json
 {
@@ -57,36 +42,46 @@ git clone https://github.com/HaYanJongSeong/opencode-go-usage \
 }
 ```
 
-## 동기화 시점
+## npm (planned / manual)
 
-| 시점 | 동작 |
-| --- | --- |
-| TUI 시작 직후 | 즉시 1회 계산·렌더 |
-| `refreshSec`마다 (기본 40초, 최소 10초) | 세션·메시지 기록 다시 읽어 잔량·리셋 재계산 |
-| 세션/메시지 데이터 변경 | 다음 리프레시 주기에 반영 (푸시 아님, 폴링 방식) |
+```sh
+git clone https://github.com/HaYanJongSeong/opencode-go-usage
+cd opencode-go-usage
+npm publish
+```
 
-콘솔 서버에서 사용량을 밀어주는 게 아니라 로컬 기록을 폴링하는 방식이기 때문에, 터미널을 닫아두면 그 사이 갱신이 걷지 못해 화면 UX는 유지된다.
+## Options
 
-## 예시 화면
+| Option        | Default | Notes                                                |
+| ------------- | ------- | ---------------------------------------------------- |
+| `plan`        | `"go"`  | `go` or `goplus` — switches the monthly limits table |
+| `refreshSec`  | `40`    | Refresh cadence in seconds, minimum 10               |
+| `monthlyLimits` | —     | Per-model overrides, e.g. `{ "glm-5.3": 60 }`        |
 
-![사이드바 예시](assets/preview.svg)
+## When does the widget sync?
 
-## 옵션
+| When                        | What happens                                               |
+| --------------------------- | ---------------------------------------------------------- |
+| TUI start                   | One immediate compute + render                             |
+| Every `refreshSec` seconds  | Re-read session/message history, recompute remaining + ETA |
+| New usage recorded          | Picked up by the next polling cycle (pull, not push)       |
 
-| 옵션            | 기본값  | 설명                                            |
-| --------------- | ------- | ----------------------------------------------- |
-| `plan`          | `"go"`  | `"go"` 또는 `"goplus"` (한도 표 기준 변경)      |
-| `refreshSec`    | `40`    | 갱신 주기(초), 최소 10                          |
-| `monthlyLimits` | —       | 모델별 월한도 수동 보정, 예 `{ "glm-5.3": 60 }` |
+The widget polls local data — it does not stream from the console server. If you close the terminal, nothing visibly updates until you relaunch the TUI.
 
-## 데이터 출처와 한계
+## Example screenshot
 
-계산에 쓰는 건 **로컬 서버(DB)가 들고 있는 세션·메시지 기록**이다. 모델별 cost와 시각을 여기서 읽는다.
+![Sidebar preview](assets/preview.svg)
 
-- 다른 폴더(별도 서버 인스턴스/프로젝트)에서 쓴 세션은 합산에서 빠질 수 있음
-- 리셋 시각은 서버 공식 `resetsAt`이 아니라 위 창 기준의 근사치
-- 콘솔(Console → Usage)의 공식 잔량과 완전히 같지는 않다
+## How the numbers are computed (and the catches)
 
-## 라이선스
+It reads OpenCode's **local server DB**: each assistant message carries a `cost` and a timestamp (from opencode's own price tables), aggregated per model within the last 5h, 24h, 7d, and 30d. Per-model headroom uses the [Go plan monthly dollar limits](https://opencode.ai/v2/docs/console/go) minus your spend, then picks the worst (most-consumed) model per window.
+
+Caveats:
+
+- Sessions made in **other project directories** (separate worktrees/instances) live in their own DB and are missed from this sum
+- Reset times are approximations based on window anchors, not the server-issued `resetsAt` value
+- Not identical to the Console's official dashboard at [opencode.ai/console](https://opencode.ai/console) → **Usage**
+
+## License
 
 MIT
