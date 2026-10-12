@@ -2,21 +2,21 @@
 
 **English** | [한국어](README.ko.md)
 
-An [OpenCode](https://opencode.ai) CLI plugin that shows your **OpenCode Go / Go Plus** plan usage in the TUI **sidebar**: remaining usage, meter bars, and the time until each window resets.
+An [OpenCode](https://opencode.ai) CLI plugin that puts your **OpenCode Go / Go Plus** usage in the TUI **sidebar**: how much room is left in each window, and when it resets.
 
 ```
-5H   ▓▓▓▓▓░ 99% · 4h12m   ← 99% left, resets in 4h12m (5-hour window)
-일   ▓▓▓▓▓░ 98% · 22h     ← daily (24h rolling)
-주간  ▓▓▓▓▓░ 96% · 1d2h   ← weekly (next Monday 00:00)
-월간  ▓▓▓▓▓░ 82% · 15d    ← monthly (1st of next month 00:00)
+5H    ▓▓▓▓▓░ 88% · 1h12m   ← 5-hour window
+주간  ▓▓░░░░ 37% · 3d4h    ← weekly
+월간  ▓░░░░░ 12% · 12d     ← monthly
 ```
 
-- Bars and `%` show **remaining quota**, using the Go rule of thumb (5-hour = 20% of the model's monthly limit, weekly = 50%, monthly = 100%)
+- Reads the same meters as [Console](https://opencode.ai/console) → Usage, so the numbers match what the plan actually enforces
 - Color by headroom: green (≥40%) / yellow (<40%) / red (≤10%)
-- Auto-refreshes every 40 seconds by default (configurable)
-- No dollar amounts, no grand total — just percentage, bar, and reset ETA per row
+- Refreshes every 45 seconds by default
+- No dollar amounts, no totals — just percentage, bar, and reset ETA per row
+- If the console can't be reached (offline, expired login) it falls back to a rough local estimate and marks the row with `~`
 
-- Labels (`5H`, `일`, `주간`, `월간`) mean the 5-hour, daily, weekly, and monthly windows. Set `"locale": "en"` to switch them to `5H/DAY/WEEK/MONTH`.
+Labels are `5H / 주간 / 월간` by default; set `"locale": "en"` for `5H / WEEK / MONTH`.
 
 ## Install (other machines)
 
@@ -36,7 +36,7 @@ If you prefer `~/.config/opencode/cli.json`:
   "plugins": [
     {
       "package": "~/.config/opencode/plugins/opencode-go-usage",
-      "options": { "plan": "go" }
+      "options": { "locale": "en" }
     }
   ]
 }
@@ -52,22 +52,23 @@ npm publish
 
 ## Options
 
-| Option        | Default | Notes                                                |
-| ------------- | ------- | ---------------------------------------------------- |
-| `plan`        | `"go"`  | `go` or `goplus` — switches the monthly limits table |
-| `refreshSec`  | `40`    | Refresh cadence in seconds, minimum 10               |
-| `locale`      | `"ko"`  | `"en"` switches row labels (`5H/DAY/WEEK/MONTH`)      |
-| `monthlyLimits` | —     | Per-model overrides, e.g. `{ "glm-5.3": 60 }`        |
+| Option          | Default  | Notes                                                              |
+| --------------- | -------- | ------------------------------------------------------------------ |
+| `plan`          | `"go"`   | `go` or `goplus` — limits table used only by the local fallback     |
+| `refreshSec`    | `45`     | Poll cadence in seconds, minimum 10                                 |
+| `locale`        | `"ko"`   | `"en"` switches row labels to `5H/WEEK/MONTH`                       |
+| `source`        | `"auto"` | `auto` (console, then local) · `api` (console only) · `local`       |
+| `monthlyLimits` | —        | Per-model overrides for the local fallback, e.g. `{ "glm-5.3": 60 }` |
 
-## When does the widget sync?
+## When does the widget update?
 
-| When                        | What happens                                               |
-| --------------------------- | ---------------------------------------------------------- |
-| TUI start                   | One immediate compute + render                             |
-| Every `refreshSec` seconds  | Re-read session/message history, recompute remaining + ETA |
-| New usage recorded          | Picked up by the next polling cycle (pull, not push)       |
+| When                       | What happens                                    |
+| -------------------------- | ----------------------------------------------- |
+| TUI start                  | One fetch + render immediately                  |
+| Every `refreshSec` seconds | Re-reads the console meters                     |
+| Usage moves                | Shows up on the next poll (polling, not push)   |
 
-The widget polls local data — it does not stream from the console server. If you close the terminal, nothing visibly updates until you relaunch the TUI.
+Response caching is 15 seconds, so a very short `refreshSec` won't hammer the console.
 
 ## Example screenshot
 
@@ -75,15 +76,21 @@ The widget polls local data — it does not stream from the console server. If y
 
 ![Sidebar preview (Korean)](assets/preview.svg)
 
-## How the numbers are computed (and the catches)
+## Where the numbers come from
 
-It reads OpenCode's **local server DB**: each assistant message carries a `cost` and a timestamp (from opencode's own price tables), aggregated per model within the last 5h, 24h, 7d, and 30d. Per-model headroom uses the [Go plan monthly dollar limits](https://opencode.ai/v2/docs/console/go) minus your spend, then picks the worst (most-consumed) model per window.
+`GET https://opencode.ai/console/api/go/status`, with the OpenCode login token already on disk (the `opencode` credential in `~/.local/share/opencode/opencode.db`) — the same credential the CLI uses. The response carries one meter per window:
 
-Caveats:
+```
+fiveHour · week · month   →   usedMicroCents, limitMicroCents, resetsAt
+```
 
-- Sessions made in **other project directories** (separate worktrees/instances) live in their own DB and are missed from this sum
-- Reset times are approximations based on window anchors, not the server-issued `resetsAt` value
-- Not identical to the Console's official dashboard at [opencode.ai/console](https://opencode.ai/console) → **Usage**
+Remaining % is `1 - used/limit`, and the countdown is `resetsAt` minus now, so the rows track the Console (and the `retry-after` you get when the 5-hour limit is spent).
+
+The token is only read. The plugin never refreshes, rotates, or writes it.
+
+### The fallback
+
+If the console call fails, the plugin sums local session records instead (per-message `cost` and timestamp, per model, against the monthly limits from the [Go plan docs](https://opencode.ai/v2/docs/console/go)) and appends `~` to the rows. That estimate runs low compared to the server's accounting, so treat it as a last resort — it's what you'd see while offline.
 
 ## License
 

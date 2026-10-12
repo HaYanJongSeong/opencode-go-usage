@@ -1,12 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="430" height="210" viewBox="0 0 430 210">
-  <rect width="430" height="210" rx="8" fill="#14161a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="430" height="176" viewBox="0 0 430 176">
+  <rect width="430" height="176" rx="8" fill="#14161a"/>
   <rect x="0" y="0" width="430" height="26" rx="8" fill="#1c1f26"/>
   <text x="14" y="18" font-family="DejaVu Sans Mono, monospace" font-size="11" fill="#7a828e">sidebar (locale: "en")</text>
   <g font-family="DejaVu Sans Mono, monospace" font-size="13">
-    <text x="18" y="56"><tspan fill="#4ec9b0">5H  </tspan><tspan fill="#3ddc84">▓▓▓▓▓░</tspan><tspan fill="#3ddc84">  99% · 4h12m</tspan></text>
-    <text x="18" y="84"><tspan fill="#4ec9b0">DAY </tspan><tspan fill="#3ddc84">▓▓▓▓▓░</tspan><tspan fill="#3ddc84">  98% · 22h</tspan></text>
-    <text x="18" y="112"><tspan fill="#4ec9b0">WEEK</tspan><tspan fill="#e5c07b"> ▓▓░░░░</tspan><tspan fill="#e5c07b">  34% · 12h</tspan></text>
-    <text x="18" y="140"><tspan fill="#4ec9b0">MONTH</tspan><tspan fill="#e06c75">▓░░░░░</tspan><tspan fill="#e06c75">   6% · 3d</tspan></text>
-    <text x="18" y="186" font-size="10" fill="#7a828e">remaining % · time until the window resets (40s polling)</text>
+    <text x="18" y="56" fill="#3ddc84">5H    ▓▓▓▓▓░ 88% · 1h12m</text>
+    <text x="18" y="80" fill="#e5c07b">WEEK  ▓▓░░░░ 37% · 3d4h</text>
+    <text x="18" y="104" fill="#e06c75">MONTH ▓░░░░░ 12% · 12d</text>
+    <text x="18" y="150" font-size="10" fill="#7a828e">live from opencode.ai/console · remaining % · resets in (45s poll)</text>
   </g>
 </svg>

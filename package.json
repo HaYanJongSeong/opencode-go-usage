@@ -13,8 +13,8 @@
     "@opentui/solid": ">=0.5.8",
     "solid-js": ">=1.9.0"
   },
-  "version": "0.1.0",
-  "description": "OpenCode TUI sidebar widget: OpenCode Go plan remaining usage % and reset ETA (5H/day/week/month) — 근사(Approximate, based on local session data)",
+  "version": "0.2.0",
+  "description": "OpenCode TUI sidebar widget: live OpenCode Go plan usage from the console — remaining % and reset ETA per window (5H/week/month)",
   "keywords": [
     "opencode",
     "opencode-plugin",
