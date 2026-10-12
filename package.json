@@ -27,7 +27,8 @@
   "files": [
     "tui.tsx",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "assets"
   ],
   "repository": {
     "type": "git",
