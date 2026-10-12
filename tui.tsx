@@ -81,6 +81,13 @@ const PLAN_LIMITS: Record<string, Record<string, number>> = {
 
 type Msg = { cost: number; created: number; model: string }
 
+// 라벨/표기 로케일: cli.json options.locale = "ko"(기본) | "en"
+// 5칸 고정폭으로 맞추기(터미널 CJK 폭 고려) — 바 우측 정렬 일관성 유지.
+const LABELS: Record<string, { five: string; day: string; week: string; month: string; empty: string }> = {
+  ko: { five: "5H  ", day: "일  ", week: "주간", month: "월간", empty: "-" },
+  en: { five: "5H   ", day: "DAY  ", week: "WEEK ", month: "MONTH", empty: "-" },
+}
+
 export default Plugin.define({
   id: "prometheus-go-usage",
   async setup(context: any) {
@@ -91,22 +98,23 @@ export default Plugin.define({
         ? { ...PLAN_LIMITS[planKey], ...options.monthlyLimits }
         : PLAN_LIMITS[planKey]
     const refreshMs = Math.max(10, Number(options.refreshSec ?? 45)) * 1000
+    const labels = LABELS[options.locale === "en" ? "en" : "ko"] ?? LABELS.ko
 
     const unregister = context.ui.slot({
       append: "sidebar.content",
-      render: () => <GoUsage context={context} limits={limits} refreshMs={refreshMs} />,
+      render: () => <GoUsage context={context} limits={limits} labels={labels} refreshMs={refreshMs} />,
     })
     return () => unregister()
   },
 })
 
-function GoUsage(props: { context: any; limits: Record<string, number>; refreshMs: number }) {
+function GoUsage(props: { context: any; limits: Record<string, number>; labels: (typeof LABELS)["ko"]; refreshMs: number }) {
   const [rows, setRows] = createSignal<Row[]>([])
 
   onMount(() => {
     const run = async () => {
       try {
-        setRows(await buildRows(props.context, props.limits))
+        setRows(await buildRows(props.context, props.limits, props.labels))
       } catch {}
     }
     run()
@@ -137,7 +145,7 @@ function GoUsage(props: { context: any; limits: Record<string, number>; refreshM
 
 type Row = { label: string; pct: number; reset: string }
 
-async function buildRows(context: any, limits: Record<string, number>): Promise<Row[]> {
+async function buildRows(context: any, limits: Record<string, number>, labels: (typeof LABELS)["ko"]): Promise<Row[]> {
   const now = Date.now()
   const c30d = now - 30 * DAY
 
@@ -212,32 +220,25 @@ async function buildRows(context: any, limits: Record<string, number>): Promise<
   }
 
   // 로컬데이터 만 30d 예상치: 세션이 여러 프로젝트 디렉터리에 분산 저장되므로 콘솔 전체 사용량과 차이가 있을 수 있음.
-  const d30 = w30.m.size ? worstOf(w30.m, limits, 1.0) : 0
-  const d7 = w7.m.size ? worstOf(w7.m, limits, 0.5) : 0
 
   const now2 = new Date()
   // 5H: 현재 창 최초 요청 + 5h (롤링)
   const r5 = w5.earliest === Infinity ? null : w5.earliest + 5 * HOUR
-  const r1 = w1.earliest === Infinity ? null : w1.earliest + DAY
-  // 주간: 다음 월요일 00:00 로컬 / 월간: 다음달 1일 00:00 로컬
+  const r1 = w1.earliest === Infinity ? null : w1.earliest + DAY  // 주간: 다음 월요일 00:00 로컬 / 월간: 다음달 1일 00:00 로컬
+  // 라벨 로케일(en/ko)은 LABELS에서 결정되어 여기서 소비된다.
   const dow = (now2.getDay() + 6) % 7
   const nextMon = new Date(now2)
   nextMon.setDate(now2.getDate() + (7 - dow))
   nextMon.setHours(0, 0, 0, 0)
   const nextMonth = new Date(now2.getFullYear(), now2.getMonth() + 1, 1, 0, 0, 0, 0)
 
-  const rows: Row[] = [mkRow("5H", w5, 0.2, r5), mkRow("일", w1, 0.96, r1), mkRow("주간", w7, 0.5, nextMon.getTime()), mkRow("월간", w30, 1.0, nextMonth.getTime())]
+  const rows: Row[] = [
+    mkRow(labels.five, w5, 0.2, r5),
+    mkRow(labels.day, w1, 0.96, r1),
+    mkRow(labels.week, w7, 0.5, nextMon.getTime()),
+    mkRow(labels.month, w30, 1.0, nextMonth.getTime()),
+  ]
   return rows
-}
-
-function worstOf(m: Map<string, number>, limits: Record<string, number>, share: number) {
-  let worst = 0
-  for (const [model, cost] of m) {
-    const allowed = (limits[model] ?? 15) * share
-    if (allowed <= 0) continue
-    worst = Math.max(worst, cost / allowed)
-  }
-  return worst
 }
 
 function fmtLeft(ms: number) {

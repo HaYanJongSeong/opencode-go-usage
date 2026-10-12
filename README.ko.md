@@ -60,6 +60,7 @@ OpenCode는 `<global-config>/plugins/<name>/tui.tsx` 경로의 플러그인을 �
 | --------------- | ------- | ----------------------------------------------- |
 | `plan`          | `"go"`  | `"go"` 또는 `"goplus"` (한도 표 기준 변경)      |
 | `refreshSec`    | `40`    | 갱신 주기(초), 최소 10                          |
+| `locale`        | `"ko"`  | `"en"`로 바꾸면 라벨이 `5H/DAY/WEEK/MONTH`가 됨  |
 | `monthlyLimits` | —       | 모델별 월한도 수동 보정, 예 `{ "glm-5.3": 60 }` |
 
 ## 데이터 출처와 한계

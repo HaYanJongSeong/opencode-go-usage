@@ -16,7 +16,7 @@ An [OpenCode](https://opencode.ai) CLI plugin that shows your **OpenCode Go / Go
 - Auto-refreshes every 40 seconds by default (configurable)
 - No dollar amounts, no grand total — just percentage, bar, and reset ETA per row
 
-Labels (`5H`, `일`, `주간`, `월간`) mean the 5-hour, daily, weekly, and monthly windows. They are kept in Korean to match the layout width; they do not switch with locale at the moment.
+- Labels (`5H`, `일`, `주간`, `월간`) mean the 5-hour, daily, weekly, and monthly windows. Set `"locale": "en"` to switch them to `5H/DAY/WEEK/MONTH`.
 
 ## Install (other machines)
 
@@ -56,6 +56,7 @@ npm publish
 | ------------- | ------- | ---------------------------------------------------- |
 | `plan`        | `"go"`  | `go` or `goplus` — switches the monthly limits table |
 | `refreshSec`  | `40`    | Refresh cadence in seconds, minimum 10               |
+| `locale`      | `"ko"`  | `"en"` switches row labels (`5H/DAY/WEEK/MONTH`)      |
 | `monthlyLimits` | —     | Per-model overrides, e.g. `{ "glm-5.3": 60 }`        |
 
 ## When does the widget sync?
