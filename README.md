@@ -71,7 +71,9 @@ The widget polls local data — it does not stream from the console server. If y
 
 ## Example screenshot
 
-![Sidebar preview](assets/preview.svg)
+![Sidebar preview (English)](assets/preview-en.svg)
+
+![Sidebar preview (Korean)](assets/preview.svg)
 
 ## How the numbers are computed (and the catches)
 
