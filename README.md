@@ -38,7 +38,7 @@ npm i -g opencode-go-usage
 ### 2) GitHub 클론 (로컬)
 
 ```sh
-git clone https://github.com/<you>/opencode-go-usage \
+git clone https://github.com/HaYanJongSeong/opencode-go-usage \
   ~/.config/opencode/plugins/opencode-go-usage
 ```
 

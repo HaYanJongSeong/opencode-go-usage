@@ -32,10 +32,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Miriam/opencode-go-usage.git"
+    "url": "git+https://github.com/HaYanJongSeong/opencode-go-usage.git"
   },
   "bugs": {
-    "url": "https://github.com/Miriam/opencode-go-usage/issues"
+    "url": "https://github.com/HaYanJongSeong/opencode-go-usage/issues"
   },
-  "homepage": "https://github.com/Miriam/opencode-go-usage#readme"
+  "homepage": "https://github.com/HaYanJongSeong/opencode-go-usage#readme"
 }
