@@ -1,0 +1,830 @@
+--- /dev/null
++++ b/DESIGN.md
+@@ -0,0 +1,36 @@
++# Composer quota bridge
++
++## 1. Existing system
++Preserve OpenCode's Solid UI; no new brand, dependencies, modal or application.
++Source: shared Progress and `packages/ui/src/actions/button/button.tsx` and CSS;
++`packages/app/src/composer/composer.tsx` owns the vertical `gap-3` stack.
++
++## 2. Color and surface
++Existing semantic `text-base`, `text-weak`, `surface-base`, `border-weak-base`,
++`border-active`, `surface-raised-base-hover` through shared components. No raw colors.
++
++## 3. Typography
++Existing sans font and `text-12-regular` metadata. Shared components preserve
++`--font-size-small` and `--line-height-large`.
++
++## 4. Layout
++Full-width inline panel before ComposerEditor; `gap-2` rows, `gap-3` sections,
++`min-w-0` and wrapping text. Composer retains scroll ownership.
++
++## 5. Primitives and states
++Shared Progress shows API remainingPercent, never estimates. No expandable details.
++An outlined close button keeps dismissal distinct from metadata. States: hidden,
++loading, success, partial error, request error, invalid arguments. Fixed localized errors.
++
++## 6. Motion
++No new animation. Scoped quota CSS disables Progress's width transition; preserve
++inherited focus behavior and reduced motion.
++
++## 7. Accessibility
++Named progress bars, live loading/error feedback, keyboard-operable close button,
++inherited focus states. Go's null 5h reset uses the official first-use label;
++other missing reset timestamps explicitly say unavailable.
++
++## 8. Accepted debt
++Solid needs no React tooling. Browser/mobile/theme visual QA and authenticated RPC
++verification remain parent-session gates; unit tests do not prove visual quality.
+--- a/packages/app/src/composer/client-slash-command.ts
++++ b/packages/app/src/composer/client-slash-command.ts
+@@ -22,3 +22,9 @@
+     input: command.input,
+   }
+ }
++
++export function parseQuotaCommand(text: string) {
++  const command = parseSlashCommand(text.trim())
++  if (!command || (command.name !== "left" && command.name !== "사용량")) return
++  return { valid: command.input.length === 0 }
++}
+--- a/packages/app/src/composer/client-slash-command.test.ts
++++ b/packages/app/src/composer/client-slash-command.test.ts
+@@ -1,5 +1,5 @@
+ import { expect, test } from "bun:test"
+-import { parseClientSlashCommand } from "./client-slash-command"
++import { parseClientSlashCommand, parseQuotaCommand } from "./client-slash-command"
+ 
+ const options = [
+   { id: "btw.ask", trigger: "btw", arguments: true, type: "builtin" as const },
+@@ -18,3 +18,16 @@
+ ])("parses $text as a client argument command", (row) => {
+   expect(parseClientSlashCommand(options, row.text)).toEqual(row.result)
+ })
++
++test.each([
++  { text: "/left", result: { valid: true } },
++  { text: "/사용량", result: { valid: true } },
++  { text: " /left \n", result: { valid: true } },
++  { text: "/left args", result: { valid: false } },
++  { text: "/사용량\nargs", result: { valid: false } },
++  { text: "/leftover", result: undefined },
++  { text: "/Left", result: undefined },
++  { text: "explain /left", result: undefined },
++])("recognizes only quota aliases: $text", ({ text, result }) => {
++  expect(parseQuotaCommand(text)).toEqual(result)
++})
+--- a/packages/app/src/composer/model.ts
++++ b/packages/app/src/composer/model.ts
+@@ -24,16 +24,19 @@
+ import { createComposerHistory } from "./history/store"
+ import { createComposerSubmit } from "./submit"
+ import { useAttachmentDestination } from "./attachments/destination"
+-import { parseClientSlashCommand } from "./client-slash-command"
++import { parseClientSlashCommand, parseQuotaCommand } from "./client-slash-command"
++import { createQuotaController, QuotaRpc, type QuotaController } from "./quota"
+ 
+ export type ComposerModel = ComposerEditorModel & {
+   readonly model: ComposerControls["model"]
++  readonly quota?: QuotaController
+ }
+ 
+ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?: ComposerQueue }): ComposerModel {
+   const sdk = useWorkspaceLocation()
+   const data = useData()
+   const server = useServer()
++  const quota = createQuotaController((signal) => server.ctx.sdk.api.rpc(QuotaRpc).read({}, { location: sdk().ref, signal }))
+   const available = () =>
+     server.conn.type !== "extension" || !server.conn.managed || server.ctx.sdk.connection.status() === "connected"
+   const files = useFile()
+@@ -266,6 +269,8 @@
+       restore: restoreHistoryComments,
+     },
+     clientCommand: (text) => {
++      const local = quota.command(text)
++      if (local) return local
+       const selected = parseClientSlashCommand(slashCommands(), text)
+       if (!selected) return
+       return () => command.trigger(selected.id, "slash", selected.input)
+@@ -368,6 +373,14 @@
+         working: adapter.working,
+         queue: options?.queue,
+         onSubmit: (submitOptions) => {
++          const text = prompt
++            .current()
++            .map((part) => ("content" in part ? part.content : ""))
++            .join("")
++          if (mode() === "normal" && parseQuotaCommand(text)) {
++            void submission.submit(new Event("submit"), submitOptions)
++            return
++          }
+           if (!available()) return
+           const queue = options?.queue
+           if (queue?.undoing()) return
+@@ -385,6 +398,7 @@
+     },
+   })
+   Object.defineProperty(controller, "model", { get: () => adapter.controls().model })
++  Object.defineProperty(controller, "quota", { value: quota })
+ 
+   command.register("composer-editor", () => [
+     {
+--- a/packages/app/src/composer/composer.tsx
++++ b/packages/app/src/composer/composer.tsx
+@@ -11,6 +11,7 @@
+ import { formatKeybind, useCommand } from "@/shell/commands/command"
+ import { useLanguage } from "@/runtime/i18n/language"
+ import type { ComposerModel } from "./model"
++import { QuotaPanel } from "./quota-panel"
+ 
+ export function Composer(props: {
+   class?: string
+@@ -25,6 +26,7 @@
+ 
+   return (
+     <div class="flex flex-col gap-3">
++      <Show when={props.model.quota}>{(quota) => <QuotaPanel quota={quota()} />}</Show>
+       <ComposerEditor
+         controller={props.model}
+         borderUnderlay={props.borderUnderlay}
+--- a/packages/app/src/composer/suggestions/machine.ts
++++ b/packages/app/src/composer/suggestions/machine.ts
+@@ -1,5 +1,6 @@
+ import type { ComposerHistoryEntry, ComposerPersistedState, ComposerSuggestion } from "../types"
+ import { isAttachment } from "../prompt-parts"
++import { parseQuotaCommand } from "../client-slash-command"
+ 
+ export type ComposerInteractionState = {
+   mode: "normal" | "shell"
+@@ -104,6 +105,9 @@
+     ])
+   }
+ 
++  if (state.mode === "normal" && parseQuotaCommand(value)?.valid) {
++    return changed({ ...state, popover: { type: "closed" }, focus: "editor" }, setText)
++  }
+   const command = value.match(/^\/(\S*)$/)
+   if (command) {
+     const query = command[1] ?? ""
+--- a/packages/app/src/composer/suggestions/machine.test.ts
++++ b/packages/app/src/composer/suggestions/machine.test.ts
+@@ -32,6 +32,18 @@
+ 
+ const menu = { popover: { type: "command-menu", query: "" }, focus: "command-search" } as const
+ 
++test.each(["/left", "/사용량"])("quota alias %s closes suggestions so first Enter submits", (value) => {
++  const initial = { ...createComposerInteractionState(), popover: { type: "command-inline" as const, query: "l" } }
++  const input = transitionComposer(initial, { type: "input.changed", value }, persisted(value))
++  expect(input.state.popover).toEqual({ type: "closed" })
++  expect(transitionComposer(input.state, key("Enter"), persisted(value)).handled).toBeFalse()
++})
++
++test("quota prefixes retain ordinary slash suggestions", () => {
++  const input = transitionComposer(createComposerInteractionState(), { type: "input.changed", value: "/leftover" }, persisted())
++  expect(input.state.popover).toEqual({ type: "command-inline", query: "leftover" })
++})
++
+ test.each<{
+   name: string
+   from?: Partial<ComposerInteractionState>
+--- a/packages/app/src/composer/submit.test.ts
++++ b/packages/app/src/composer/submit.test.ts
+@@ -6,6 +6,8 @@
+ import { createMemoryComposerState, type Prompt } from "./state"
+ import { createComposerSubmit } from "./submit"
+ import type { ComposerStateTarget } from "./submission-state"
++import { createRoot } from "solid-js"
++import { createQuotaController } from "./quota"
+ 
+ const selectedModel = {
+   id: "model-1",
+@@ -140,6 +142,55 @@
+ }
+ 
+ describe("Composer submission", () => {
++  test.each([
++    { text: "/left", existing: false },
++    { text: "/사용량", existing: false },
++    { text: "/left args", existing: false },
++    { text: "/left", existing: true },
++    { text: "/사용량", existing: true },
++    { text: "/사용량 args", existing: true },
++  ])("quota $text (existing=$existing) never admits a user message", async ({ text, existing }) => {
++    const state = createMemoryComposerState({ prompt: text }).capture()
++    const attachment = {
++      type: "image" as const,
++      id: "quota-attachment",
++      filename: "quota.png",
++      mime: "image/png",
++      blob: { id: "quota-attachment", url: "data:image/png;base64,YQ==" },
++    }
++    state.set([...state.current(), attachment])
++    const calls: string[] = []
++    const root = createRoot((dispose) => ({
++      dispose,
++      quota: createQuotaController(async () => { calls.push("quota"); throw new Error("private backend detail") }),
++    }))
++    try {
++      const adapter = existing
++        ? active(state, session({ calls }))
++        : fresh(state, async () => { calls.push("start"); return undefined })
++      adapter.controls = () => { throw new Error("quota must not require model selection") }
++      await submitInput(adapter, undefined, "normal", undefined, [], root.quota.command).submit(new Event("submit"))
++      expect(calls).toEqual(text.endsWith("args") ? [] : ["quota"])
++      expect(root.quota.state.error).toBe(text.endsWith("args") ? "arguments" : "unavailable")
++      expect(state.current()).toEqual([{ type: "text", content: "", start: 0, end: 0 }, attachment])
++    } finally {
++      root.dispose()
++    }
++  })
++
++  test("shell quota text remains a shell command", async () => {
++    const state = createMemoryComposerState({ prompt: "/left" }).capture()
++    const calls: string[] = []
++    const root = createRoot((dispose) => ({ dispose, quota: createQuotaController(async () => { calls.push("quota") }) }))
++    try {
++      await submitInput(active(state, session({ calls })), undefined, "shell", undefined, [], root.quota.command).submit(new Event("submit"))
++      expect(calls).toEqual(["shell"])
++      expect(root.quota.state.visible).toBeFalse()
++    } finally {
++      root.dispose()
++    }
++  })
++
+   test("runs a client argument command without admitting it to the session", async () => {
+     const state = createMemoryComposerState().capture()
+     const image = {
+--- /dev/null
++++ b/packages/app/src/composer/quota.ts
+@@ -0,0 +1,81 @@
++import { Schema } from "effect"
++import { createStore } from "solid-js/store"
++import { onCleanup } from "solid-js"
++import { QuotaRpc } from "./quota-rpc.mjs"
++import { parseQuotaCommand } from "./client-slash-command"
++
++const percent = Schema.Number.check(Schema.isFinite(), Schema.isBetween({ minimum: 0, maximum: 100 }))
++const window = Schema.Struct({
++  name: Schema.String,
++  usedPercent: percent,
++  remainingPercent: percent,
++  resetsAt: Schema.NullOr(Schema.String),
++})
++const fields = { label: Schema.String, checkedAt: Schema.String }
++const section = Schema.Union([
++  Schema.Struct({ ...fields, windows: Schema.NonEmptyArray(window) }),
++  Schema.Struct({ ...fields, error: Schema.Struct({ code: Schema.String, message: Schema.String }) }),
++])
++export const QuotaSnapshot = Schema.Struct({ checkedAt: Schema.String, go: section, codex: section })
++export const parseQuotaSnapshot = Schema.decodeUnknownSync(QuotaSnapshot, { onExcessProperty: "error" })
++export { QuotaRpc }
++
++export function formatQuotaReset(resetsAt: string | null, now: number, startsOnFirstUse = false) {
++  if (resetsAt === null && startsOnFirstUse) return { key: "quota.resetStartsOnUse" as const, params: { days: 0, hours: 0, minutes: 0 } }
++  const reset = resetsAt === null ? NaN : Date.parse(resetsAt)
++  if (!Number.isFinite(reset)) return { key: "quota.resetMissing" as const, params: { days: 0, hours: 0, minutes: 0 } }
++  const minutes = Math.floor(Math.max(0, reset - now) / 60_000)
++  const params = { days: Math.floor(minutes / 1440), hours: Math.floor(minutes / 60), minutes: minutes % 60 }
++  if (reset <= now) return { key: "quota.resetDue" as const, params }
++  if (minutes < 1) return { key: "quota.resetSoon" as const, params }
++  return { key: "quota.resetHours" as const, params }
++}
++
++export function createQuotaController(read: (signal: AbortSignal) => Promise<unknown>) {
++  const [state, setState] = createStore<{
++    visible: boolean
++    loading: boolean
++    snapshot?: typeof QuotaSnapshot.Type
++    error?: "arguments" | "unavailable"
++  }>({ visible: false, loading: false })
++  let pending: AbortController | undefined
++  onCleanup(() => pending?.abort())
++
++  const refresh = async () => {
++    pending?.abort()
++    const request = new AbortController()
++    pending = request
++    setState({ visible: true, loading: true, snapshot: undefined, error: undefined })
++    try {
++      const snapshot = parseQuotaSnapshot(await read(request.signal))
++      if (request.signal.aborted) return
++      setState({ snapshot, loading: false })
++    } catch {
++      if (request.signal.aborted) return
++      setState({ error: "unavailable", loading: false })
++    }
++  }
++  return {
++    state,
++    refresh,
++    close() {
++      pending?.abort()
++      pending = undefined
++      setState({ visible: false, loading: false, snapshot: undefined, error: undefined })
++    },
++    command(text: string) {
++      const parsed = parseQuotaCommand(text)
++      if (!parsed) return
++      return () => {
++        if (parsed.valid) {
++          void refresh()
++          return
++        }
++        pending?.abort()
++        setState({ visible: true, loading: false, snapshot: undefined, error: "arguments" })
++      }
++    },
++  }
++}
++
++export type QuotaController = ReturnType<typeof createQuotaController>
+--- /dev/null
++++ b/packages/app/src/composer/quota-rpc.mjs
+@@ -0,0 +1,52 @@
++const windowSchema = {
++  type: "object",
++  properties: {
++    name: { type: "string" },
++    usedPercent: { type: "number", minimum: 0, maximum: 100 },
++    remainingPercent: { type: "number", minimum: 0, maximum: 100 },
++    resetsAt: { type: ["string", "null"] },
++  },
++  required: ["name", "usedPercent", "remainingPercent", "resetsAt"],
++  additionalProperties: false,
++}
++const sectionSchema = {
++  anyOf: [{
++    type: "object",
++    properties: {
++      label: { type: "string" },
++      checkedAt: { type: "string" },
++      windows: { type: "array", minItems: 1, items: windowSchema },
++    },
++    required: ["label", "checkedAt", "windows"],
++    additionalProperties: false,
++  }, {
++    type: "object",
++    properties: {
++      label: { type: "string" },
++      checkedAt: { type: "string" },
++      error: {
++      type: "object",
++      properties: { code: { type: "string" }, message: { type: "string" } },
++      required: ["code", "message"],
++      additionalProperties: false,
++      },
++    },
++    required: ["label", "checkedAt", "error"],
++    additionalProperties: false,
++  }],
++}
++export const QuotaRpc = {
++  id: "go-codex-quota",
++  methods: {
++    read: {
++      input: { type: "object", properties: {}, additionalProperties: false },
++      output: {
++        type: "object",
++        properties: { checkedAt: { type: "string" }, go: sectionSchema, codex: sectionSchema },
++        required: ["checkedAt", "go", "codex"],
++        additionalProperties: false,
++      },
++    },
++  },
++  events: {},
++}
+--- /dev/null
++++ b/packages/app/src/composer/quota-rpc.d.mts
+@@ -0,0 +1,7 @@
++import type { Rpc } from "@opencode/schema/rpc"
++
++export const QuotaRpc: {
++  readonly id: "go-codex-quota"
++  readonly methods: { readonly read: Rpc.PortableMethod }
++  readonly events: {}
++}
+--- /dev/null
++++ b/packages/app/src/composer/quota-panel.tsx
+@@ -0,0 +1,86 @@
++import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
++import { Button } from "@opencode/ui/button"
++import { Progress } from "@opencode/ui/progress"
++import { useLanguage } from "@/runtime/i18n/language"
++import type { QuotaController } from "./quota"
++import { formatQuotaReset } from "./quota"
++import "./quota-panel.css"
++
++export function QuotaPanel(props: { quota: QuotaController }) {
++  const language = useLanguage()
++  const [now, setNow] = createSignal(Date.now())
++  createEffect(() => {
++    if (!props.quota.state.visible) return
++    setNow(Date.now())
++    const interval = setInterval(() => setNow(Date.now()), 60_000)
++    onCleanup(() => clearInterval(interval))
++  })
++  return (
++    <Show when={props.quota.state.visible}>
++      <section
++        class="composer-quota flex min-w-0 flex-col gap-2 text-12-regular"
++        aria-label={language.t("quota.title")}
++      >
++        <div class="flex items-center justify-between gap-2">
++          <span>{language.t("quota.title")}</span>
++          <div class="flex items-center gap-2">
++            <Button
++              variant="ghost"
++              size="small"
++              disabled={props.quota.state.loading}
++              onClick={() => void props.quota.refresh()}
++            >
++              {language.t("quota.refresh")}
++            </Button>
++            <Button variant="outline" size="normal" class="composer-quota-close" onClick={() => props.quota.close()}>
++              {language.t("quota.close")}
++            </Button>
++          </div>
++        </div>
++        <div role="status" aria-live="polite">
++          <Show when={props.quota.state.loading}>{language.t("quota.loading")}</Show>
++          <Show when={props.quota.state.error}>
++            {(error) => language.t(error() === "arguments" ? "quota.arguments" : "quota.unavailable")}
++          </Show>
++        </div>
++        <Show when={props.quota.state.snapshot}>
++          {(snapshot) => (
++            <For each={[snapshot().go, snapshot().codex]}>
++              {(section) => (
++                <div class="flex min-w-0 flex-col gap-2">
++                  <span>{section.label}</span>
++                  <Show
++                    when={"windows" in section ? section.windows : undefined}
++                    fallback={<span role="status">{language.t("quota.unavailable")}</span>}
++                  >
++                    {(windows) => (
++                      <div class="flex flex-col gap-2">
++                        <For each={windows()}>
++                          {(window) => {
++                             const reset = () => formatQuotaReset(window.resetsAt, now(), section.label === "Go" && window.name === "5h")
++                            return (
++                              <Progress value={window.remainingPercent} minValue={0} maxValue={100}>
++                                <span class="composer-quota-label-row">
++                                  <span class="composer-quota-remaining">
++                                    {language.t("quota.remaining", { name: window.name, percent: window.remainingPercent })}
++                                  </span>
++                                  <span class="composer-quota-reset text-text-weak">
++                                    {language.t(reset().key, reset().params)}
++                                  </span>
++                                </span>
++                              </Progress>
++                            )
++                          }}
++                        </For>
++                      </div>
++                    )}
++                  </Show>
++                </div>
++              )}
++            </For>
++          )}
++        </Show>
++      </section>
++    </Show>
++  )
++}
+--- /dev/null
++++ b/packages/app/src/composer/quota-panel.css
+@@ -0,0 +1,37 @@
++.composer-quota .composer-quota-close {
++  min-width: 44px;
++  min-height: 44px;
++}
++
++.composer-quota [data-slot="progress-label"] {
++  width: 100%;
++  min-width: 0;
++}
++
++.composer-quota-label-row {
++  display: flex;
++  justify-content: space-between;
++  gap: 8px;
++  white-space: nowrap;
++}
++
++.composer-quota-remaining {
++  min-width: 0;
++  overflow: hidden;
++  text-overflow: ellipsis;
++}
++
++.composer-quota-reset {
++  flex-shrink: 0;
++  font-variant-numeric: tabular-nums;
++}
++
++.composer-quota [data-slot="progress-fill"] {
++  transition: none;
++}
++
++@media (prefers-reduced-motion: reduce) {
++  .composer-quota [data-slot="collapsible-arrow-icon"] {
++    transition: none;
++  }
++}
+--- /dev/null
++++ b/packages/app/src/composer/quota.test.ts
+@@ -0,0 +1,70 @@
++import { expect, test } from "bun:test"
++import { createRoot } from "solid-js"
++import { createQuotaController, formatQuotaReset, parseQuotaSnapshot, QuotaSnapshot } from "./quota"
++
++const snapshot = {
++  checkedAt: "2026-10-13T12:00:00Z",
++  go: { label: "Go", checkedAt: "2026-10-13T12:00:00Z", windows: [{ name: "Weekly", usedPercent: 17.5, remainingPercent: 82.5, resetsAt: null }] },
++  codex: { label: "Codex", checkedAt: "2026-10-13T12:00:00Z", error: { code: "unavailable", message: "private server detail" } },
++} satisfies typeof QuotaSnapshot.Type
++
++test("quota reset formats missing, invalid, past and minute/hour/day boundaries", () => {
++  const now = Date.parse("2026-10-13T12:00:00Z")
++  for (const [input, key, days, hours, minutes] of [
++    [null, "quota.resetMissing", 0, 0, 0],
++    ["invalid", "quota.resetMissing", 0, 0, 0],
++    ["2026-10-13T11:00:00Z", "quota.resetDue", 0, 0, 0],
++    ["2026-10-13T12:00:59Z", "quota.resetSoon", 0, 0, 0],
++    ["2026-10-13T12:01:00Z", "quota.resetHours", 0, 0, 1],
++    ["2026-10-13T12:59:59Z", "quota.resetHours", 0, 0, 59],
++    ["2026-10-13T13:00:00Z", "quota.resetHours", 0, 1, 0],
++    ["2026-10-13T14:10:00Z", "quota.resetHours", 0, 2, 10],
++    ["2026-10-14T12:00:00Z", "quota.resetHours", 1, 24, 0],
++    ["2026-10-15T15:10:00Z", "quota.resetHours", 2, 51, 10],
++  ] as const) {
++    const result = formatQuotaReset(input, now)
++    expect(result.key).toBe(key)
++    expect(result.params).toEqual({ days, hours, minutes })
++  }
++})
++
++test("quota validates actual percentages, nullable resets and partial errors", () => {
++  expect(parseQuotaSnapshot(snapshot)).toEqual(snapshot)
++  for (const value of [-1, 101, NaN, Infinity, "82.5"]) {
++    expect(() => parseQuotaSnapshot({ ...snapshot, go: { ...snapshot.go, windows: [{ ...snapshot.go.windows[0], remainingPercent: value }] } })).toThrow()
++  }
++  expect(() => parseQuotaSnapshot({ ...snapshot, go: { ...snapshot.go, error: snapshot.codex.error } })).toThrow()
++  expect(() => parseQuotaSnapshot({ ...snapshot, go: { ...snapshot.go, windows: [] } })).toThrow()
++})
++test("only the official Go idle-window state is labelled starts on first use", () => {
++  expect(formatQuotaReset(null, Date.now(), true).key).toBe("quota.resetStartsOnUse")
++  expect(formatQuotaReset(null, Date.now()).key).toBe("quota.resetMissing")
++  expect(formatQuotaReset("invalid", Date.now(), true).key).toBe("quota.resetMissing")
++})
++
++test("quota aborts superseded and disposed reads and ignores stale responses", async () => {
++  const requests: { signal: AbortSignal; result: ReturnType<typeof Promise.withResolvers<unknown>> }[] = []
++  const root = createRoot((dispose) => ({
++    dispose,
++    quota: createQuotaController((signal) => {
++      const result = Promise.withResolvers<unknown>()
++      requests.push({ signal, result })
++      return result.promise
++    }),
++  }))
++  const first = root.quota.refresh()
++  const second = root.quota.refresh()
++  expect(requests[0].signal.aborted).toBeTrue()
++  requests[1].result.resolve(snapshot)
++  await second
++  requests[0].result.reject(new Error("private error"))
++  await first
++  expect(root.quota.state.snapshot).toEqual(snapshot)
++  expect(root.quota.state.error).toBeUndefined()
++  const last = root.quota.refresh()
++  root.dispose()
++  expect(requests[2].signal.aborted).toBeTrue()
++  requests[2].result.resolve(snapshot)
++  await last
++  expect(root.quota.state.snapshot).toBeUndefined()
++})
+--- /dev/null
++++ b/packages/app/test-browser/quota-panel.test.tsx
+@@ -0,0 +1,132 @@
++import { expect, setSystemTime, spyOn, test } from "bun:test"
++import { render } from "solid-js/web"
++import { PlatformProvider } from "@/runtime/platform/platform"
++import { LanguageProvider, loadLocaleDict, UiI18nBridge } from "@/runtime/i18n/language"
++import { createQuotaController } from "@/composer/quota"
++import type { QuotaController } from "@/composer/quota"
++import { QuotaPanel } from "@/composer/quota-panel"
++
++test("quota panel renders actual percentages without detail controls and closes", async () => {
++  const host = document.createElement("div")
++  document.body.append(host)
++  let refresh: (() => Promise<void>) | undefined
++  const dispose = render(() => (
++    <PlatformProvider value={{ platform: "web", openExternal() {}, restart: async () => {}, notify: async () => {} }}>
++      <LanguageProvider locale="en">
++        <UiI18nBridge>
++          {(() => {
++            const quota = createQuotaController(async () => ({
++              checkedAt: "2026-10-13T12:00:00Z",
++              go: { label: "Go", checkedAt: "2026-10-13T12:00:00Z", windows: [{ name: "Weekly", usedPercent: 17.5, remainingPercent: 82.5, resetsAt: null }] },
++              codex: { label: "Codex", checkedAt: "2026-10-13T12:00:00Z", error: { code: "unavailable", message: "PRIVATE_TOKEN" } },
++            }))
++            refresh = quota.refresh
++            return <QuotaPanel quota={quota} />
++          })()}
++        </UiI18nBridge>
++      </LanguageProvider>
++    </PlatformProvider>
++  ), host)
++  try {
++    expect(host.querySelector("section")).toBeNull()
++    await refresh?.()
++    const bar = host.querySelector('[role="progressbar"]')
++    expect(bar?.getAttribute("aria-valuenow")).toBe("82.5")
++    expect(host.textContent).toContain("Weekly · 82.5% remaining")
++    expect(host.querySelector(".composer-quota-reset")?.textContent).toBe("Reset time not provided")
++    expect(host.textContent).not.toContain("PRIVATE_TOKEN")
++    expect(host.querySelector('[data-slot="collapsible-trigger"]')).toBeNull()
++    expect(host.textContent).not.toContain("Details")
++    expect(host.querySelector('[role="dialog"]')).toBeNull()
++    const close = host.querySelector<HTMLButtonElement>(".composer-quota-close")
++    expect(close?.textContent).toBe("Close usage")
++    expect(close?.getAttribute("data-variant")).toBe("outline")
++    close?.click()
++    expect(host.querySelector("section")).toBeNull()
++  } finally {
++    dispose()
++    host.remove()
++  }
++})
++
++test("quota close stays enabled during a read, hides the panel, ignores the response and reopens by alias", async () => {
++  await loadLocaleDict("ko")
++  const intervals = spyOn(globalThis, "setInterval")
++  const cleared = spyOn(globalThis, "clearInterval")
++  const host = document.createElement("div")
++  document.body.append(host)
++  const requests: { signal: AbortSignal; result: ReturnType<typeof Promise.withResolvers<unknown>> }[] = []
++  let quota: QuotaController | undefined
++  setSystemTime(new Date("2026-10-13T12:00:00Z"))
++  const dispose = render(() => (
++    <PlatformProvider value={{ platform: "web", openExternal() {}, restart: async () => {}, notify: async () => {} }}>
++      <LanguageProvider locale="ko">
++        <UiI18nBridge>
++          {(() => {
++            quota = createQuotaController((signal) => {
++              const result = Promise.withResolvers<unknown>()
++              requests.push({ signal, result })
++              return result.promise
++            })
++            return <QuotaPanel quota={quota} />
++          })()}
++        </UiI18nBridge>
++      </LanguageProvider>
++    </PlatformProvider>
++  ), host)
++  const snapshot = {
++    checkedAt: "2026-10-13T12:00:00Z",
++    go: { label: "Go", checkedAt: "2026-10-13T12:00:00Z", windows: [{ name: "Weekly", usedPercent: 10, remainingPercent: 90, resetsAt: "2026-10-13T14:10:00Z" }] },
++    codex: { label: "Codex", checkedAt: "2026-10-13T12:00:00Z", windows: [{ name: "5h", usedPercent: 20, remainingPercent: 80, resetsAt: "2026-10-15T15:00:00Z" }, { name: "Weekly", usedPercent: 30, remainingPercent: 70, resetsAt: null }] },
++  }
++  try {
++    const pending = quota?.refresh()
++    const close = host.querySelector<HTMLButtonElement>(".composer-quota-close")
++    expect(close?.textContent).toBe("사용량 닫기")
++    expect(close?.disabled).toBe(false)
++    close?.click()
++    expect(host.querySelector("section")).toBeNull()
++    expect(requests[0].signal.aborted).toBeTrue()
++    requests[0].result.resolve(snapshot)
++    await pending
++    expect(host.querySelector("section")).toBeNull()
++    expect(quota?.state.loading).toBeFalse()
++    expect(quota?.state.snapshot).toBeUndefined()
++    expect(quota?.state.error).toBeUndefined()
++    for (const alias of ["/left", "/사용량"]) {
++      quota?.command(alias)?.()
++      requests.at(-1)?.result.resolve(snapshot)
++      await Promise.resolve()
++      await Promise.resolve()
++      expect(Array.from(host.querySelectorAll(".composer-quota-reset"), (node) => node.textContent)).toEqual([
++        "2H 10M후 리셋", "51H 0M후 리셋", "리셋 시각 미제공",
++      ])
++      const index = intervals.mock.calls.findLastIndex((call) => call[1] === 60_000)
++      const tick = intervals.mock.calls[index]?.[0]
++      expect(typeof tick).toBe("function")
++      const reads = requests.length
++      setSystemTime(new Date("2026-10-13T12:01:00Z"))
++      if (typeof tick === "function") tick()
++      expect(host.querySelector(".composer-quota-reset")?.textContent).toBe("2H 9M후 리셋")
++      expect(requests.length).toBe(reads)
++      host.querySelector<HTMLButtonElement>(".composer-quota-close")?.click()
++      expect(host.querySelector("section")).toBeNull()
++      expect(quota?.state.snapshot).toBeUndefined()
++      expect(cleared).toHaveBeenCalledWith(intervals.mock.results[index]?.value)
++      setSystemTime(new Date("2026-10-13T12:00:00Z"))
++    }
++    const disposedRead = quota?.refresh()
++    const index = intervals.mock.calls.findLastIndex((call) => call[1] === 60_000)
++    dispose()
++    expect(cleared).toHaveBeenCalledWith(intervals.mock.results[index]?.value)
++    expect(requests.at(-1)?.signal.aborted).toBeTrue()
++    requests.at(-1)?.result.resolve(snapshot)
++    await disposedRead
++  } finally {
++    dispose()
++    host.remove()
++    setSystemTime()
++    intervals.mockRestore()
++    cleared.mockRestore()
++  }
++})
+--- a/packages/app/src/runtime/i18n/en.ts
++++ b/packages/app/src/runtime/i18n/en.ts
+@@ -2,6 +2,24 @@
+ 
+ export const dict = {
+   ...DESKTOP_NATIVE_ENGLISH,
++  "quota.title": "Usage limits",
++  "quota.refresh": "Refresh",
++  "quota.close": "Close usage",
++  "quota.resetMissing": "Reset time not provided",
++  "quota.resetStartsOnUse": "Starts on first use",
++  "quota.resetSoon": "Reset in 0H 0M",
++  "quota.resetDue": "Reset time reached",
++  "quota.resetMinutes": "Reset in {{minutes}}m",
++  "quota.resetHours": "Reset in {{hours}}H {{minutes}}M",
++  "quota.resetDays": "Reset in {{days}}d {{hours}}h",
++  "quota.loading": "Checking usage limits…",
++  "quota.arguments": "Use /left or /사용량 without arguments.",
++  "quota.unavailable": "Usage limits are unavailable. Try refreshing.",
++  "quota.details": "Details",
++  "quota.remaining": "{{name}} · {{percent}}% remaining",
++  "quota.checked": "Checked: {{time}}",
++  "quota.reset": "{{name}} resets: {{time}}",
++  "quota.resetUnknown": "Not provided",
+   "server.action.authenticate": "Authenticate",
+   "server.status.connecting": "Connecting over SSH…",
+   "server.status.authentication": "Authentication required",
+--- a/packages/app/src/runtime/i18n/ko.ts
++++ b/packages/app/src/runtime/i18n/ko.ts
+@@ -1,4 +1,22 @@
+ export const dict = {
++  "quota.title": "사용량",
++  "quota.refresh": "새로고침",
++  "quota.close": "사용량 닫기",
++  "quota.resetMissing": "리셋 시각 미제공",
++  "quota.resetStartsOnUse": "첫 사용 시 시작",
++  "quota.resetSoon": "0H 0M후 리셋",
++  "quota.resetDue": "리셋 시각 도달",
++  "quota.resetMinutes": "리셋 {{minutes}}분 후",
++  "quota.resetHours": "{{hours}}H {{minutes}}M후 리셋",
++  "quota.resetDays": "리셋 {{days}}일 {{hours}}시간 후",
++  "quota.loading": "실제 사용량 조회 중…",
++  "quota.arguments": "/left 또는 /사용량만 입력하세요.",
++  "quota.unavailable": "사용량을 조회할 수 없습니다. 새로고침해 주세요.",
++  "quota.details": "상세",
++  "quota.remaining": "{{name}} · {{percent}}% 남음",
++  "quota.checked": "확인: {{time}}",
++  "quota.reset": "{{name}} 리셋: {{time}}",
++  "quota.resetUnknown": "API에서 시각을 제공하지 않음",
+   "command.category.suggested": "추천",
+   "command.category.view": "보기",
+   "command.category.project": "프로젝트",
+--- a/packages/app/vite.pwa.ts
++++ b/packages/app/vite.pwa.ts
+@@ -13,16 +13,25 @@
+       // Workbox runs after Sentry's upload and cleanup, so do not publish an unuploaded map.
+       sourcemap: false,
+       globDirectory: directory,
+-      clientsClaim: false,
+-      // Keep each open tab on its complete build until all old clients close.
+-      skipWaiting: false,
++      clientsClaim: true,
++      // The local deployment retains previous hashed assets for already-open tabs.
++      skipWaiting: true,
+       inlineWorkboxRuntime: true,
+-      navigateFallback: "/index.html",
+-      // Pairing links must reach the server so it can set the session cookie.
+-      navigateFallbackDenylist: [/^\/(?:api|auth)(?:\/|$)/, /^\/(?:_assets|assets)(?:\/|$)/],
++      // Navigation must read current HTML instead of pinning a tab to a precached build.
++      navigateFallback: null,
++      runtimeCaching: [
++        {
++          urlPattern: ({ request, url, sameOrigin }) =>
++            sameOrigin &&
++            request.mode === "navigate" &&
++            !/^\/(?:api|auth|_assets|assets)(?:\/|$)/.test(url.pathname),
++          handler: "NetworkFirst",
++          options: { cacheName: "quota-web-navigation" },
++        },
++      ],
+       // Include lazy chunks and non-JS dependencies, not just the startup bundle.
+       globPatterns: ["**/*"],
+-      globIgnores: ["**/*.map", "_headers", "_redirects"],
++      globIgnores: ["**/*.map", "**/index.html", "_headers", "_redirects"],
+       maximumFileSizeToCacheInBytes: Number.MAX_SAFE_INTEGER,
+       manifestTransforms: [
+         async (entries) => ({

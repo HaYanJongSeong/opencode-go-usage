@@ -2,8 +2,9 @@
   "name": "prometheus-side-bar",
   "type": "module",
   "exports": {
-    ".": "./tui.tsx",
-    "./tui": "./tui.tsx"
+    ".": "./index.mjs",
+    "./tui": "./tui.tsx",
+    "./rpc": "./quota-rpc.mjs"
   },
   "dependencies": {
     "@opencode/plugin": "latest"
@@ -13,8 +14,8 @@
     "@opentui/solid": ">=0.5.8",
     "solid-js": ">=1.9.0"
   },
-  "version": "0.2.0",
-  "description": "OpenCode TUI sidebar widget: live OpenCode Go plan usage from the console — remaining % and reset ETA per window (5H/week/month)",
+  "version": "0.3.0",
+  "description": "OpenCode V2 Go/Codex usage chat commands and the existing Go TUI sidebar widget",
   "keywords": [
     "opencode",
     "opencode-plugin",
@@ -25,6 +26,14 @@
   ],
   "license": "MIT",
   "files": [
+    "index.mjs",
+    "usage.mjs",
+    "usage.test.mjs",
+    "quota-rpc.mjs",
+    "web-server.mjs",
+    "web-server.test.mjs",
+    "web-ui-sw.test.mjs",
+    "web-ui-v2.0.22.patch",
     "tui.tsx",
     "README.md",
     "README.ko.md",
