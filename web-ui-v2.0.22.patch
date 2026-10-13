@@ -1,6 +1,6 @@
 --- /dev/null
 +++ b/DESIGN.md
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,37 @@
 +# Composer quota bridge
 +
 +## 1. Existing system
@@ -24,6 +24,7 @@
 +Shared Progress shows API remainingPercent, never estimates. No expandable details.
 +An outlined close button keeps dismissal distinct from metadata. States: hidden,
 +loading, success, partial error, request error, invalid arguments. Fixed localized errors.
++Authentication-required sections name the provider and keep connected providers' quotas visible.
 +
 +## 6. Motion
 +No new animation. Scoped quota CSS disables Progress's width transition; preserve
@@ -406,7 +407,7 @@
 +}
 --- /dev/null
 +++ b/packages/app/src/composer/quota-panel.tsx
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,96 @@
 +import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 +import { Button } from "@opencode/ui/button"
 +import { Progress } from "@opencode/ui/progress"
@@ -460,7 +461,17 @@
 +                  <span>{section.label}</span>
 +                  <Show
 +                    when={"windows" in section ? section.windows : undefined}
-+                    fallback={<span role="status">{language.t("quota.unavailable")}</span>}
++                    fallback={
++                      <span role="status">
++                        {language.t(
++                          "error" in section && section.error.code === "auth"
++                            ? section.label === "Go"
++                              ? "quota.connectGo"
++                              : "quota.connectOpenAI"
++                            : "quota.unavailable",
++                        )}
++                      </span>
++                    }
 +                  >
 +                    {(windows) => (
 +                      <div class="flex flex-col gap-2">
@@ -608,7 +619,7 @@
 +})
 --- /dev/null
 +++ b/packages/app/test-browser/quota-panel.test.tsx
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,212 @@
 +import { expect, setSystemTime, spyOn, test } from "bun:test"
 +import { render } from "solid-js/web"
 +import { PlatformProvider } from "@/runtime/platform/platform"
@@ -616,6 +627,86 @@
 +import { createQuotaController } from "@/composer/quota"
 +import type { QuotaController } from "@/composer/quota"
 +import { QuotaPanel } from "@/composer/quota-panel"
++
++for (const locale of ["en", "ko"] as const) {
++  for (const missing of ["go", "codex", "both"] as const) {
++    test(`${locale} quota panel shows connection guidance for ${missing} without hiding available quotas`, async () => {
++      await loadLocaleDict(locale)
++      const host = document.createElement("div")
++      document.body.append(host)
++      let quota: QuotaController | undefined
++      const checkedAt = "2026-10-13T12:00:00Z"
++      const error = { code: "auth", message: "PRIVATE_TOKEN" }
++      const windows = [{ name: "Weekly", usedPercent: 17.5, remainingPercent: 82.5, resetsAt: null }]
++      const dispose = render(() => (
++        <PlatformProvider value={{ platform: "web", openExternal() {}, restart: async () => {}, notify: async () => {} }}>
++          <LanguageProvider locale={locale}>
++            <UiI18nBridge>
++              {(() => {
++                quota = createQuotaController(async () => ({
++                  checkedAt,
++                  go: { label: "Go", checkedAt, ...(missing === "codex" ? { windows } : { error }) },
++                  codex: { label: "Codex", checkedAt, ...(missing === "go" ? { windows } : { error }) },
++                }))
++                return <QuotaPanel quota={quota} />
++              })()}
++            </UiI18nBridge>
++          </LanguageProvider>
++        </PlatformProvider>
++      ), host)
++      try {
++        await quota?.refresh()
++        const goNotice = locale === "ko" ? "OpenCode Go 연결 필요" : "OpenCode Go connection required"
++        const codexNotice = locale === "ko" ? "OpenAI 연결 필요" : "OpenAI connection required"
++        expect(host.textContent?.includes(goNotice)).toBe(missing !== "codex")
++        expect(host.textContent?.includes(codexNotice)).toBe(missing !== "go")
++        const bars = host.querySelectorAll('[role="progressbar"]')
++        expect(bars.length).toBe(missing === "both" ? 0 : 1)
++        if (missing !== "both") expect(bars[0]?.getAttribute("aria-valuenow")).toBe("82.5")
++        expect(host.textContent).not.toContain("PRIVATE_TOKEN")
++      } finally {
++        dispose()
++        host.remove()
++      }
++    })
++  }
++}
++
++for (const code of ["timeout", "http", "unauthorized"] as const) {
++  test(`quota ${code} errors do not claim that the provider is unconnected`, async () => {
++    await loadLocaleDict("ko")
++    const host = document.createElement("div")
++    document.body.append(host)
++    let quota: QuotaController | undefined
++    const checkedAt = "2026-10-13T12:00:00Z"
++    const dispose = render(() => (
++      <PlatformProvider value={{ platform: "web", openExternal() {}, restart: async () => {}, notify: async () => {} }}>
++        <LanguageProvider locale="ko">
++          <UiI18nBridge>
++            {(() => {
++              quota = createQuotaController(async () => ({
++                checkedAt,
++                go: { label: "Go", checkedAt, error: { code, message: "PRIVATE_TOKEN" } },
++                codex: { label: "Codex", checkedAt, error: { code, message: "PRIVATE_TOKEN" } },
++              }))
++              return <QuotaPanel quota={quota} />
++            })()}
++          </UiI18nBridge>
++        </LanguageProvider>
++      </PlatformProvider>
++    ), host)
++    try {
++      await quota?.refresh()
++      expect(host.textContent).toContain("사용량을 조회할 수 없습니다")
++      expect(host.textContent).not.toContain("연결 필요")
++      expect(host.querySelector('[role="progressbar"]')).toBeNull()
++      expect(host.textContent).not.toContain("PRIVATE_TOKEN")
++    } finally {
++      dispose()
++      host.remove()
++    }
++  })
++}
 +
 +test("quota panel renders actual percentages without detail controls and closes", async () => {
 +  const host = document.createElement("div")
@@ -743,7 +834,7 @@
 +})
 --- a/packages/app/src/runtime/i18n/en.ts
 +++ b/packages/app/src/runtime/i18n/en.ts
-@@ -2,6 +2,24 @@
+@@ -2,6 +2,26 @@
  
  export const dict = {
    ...DESKTOP_NATIVE_ENGLISH,
@@ -760,6 +851,8 @@
 +  "quota.loading": "Checking usage limits…",
 +  "quota.arguments": "Use /left or /사용량 without arguments.",
 +  "quota.unavailable": "Usage limits are unavailable. Try refreshing.",
++  "quota.connectGo": "OpenCode Go connection required",
++  "quota.connectOpenAI": "OpenAI connection required",
 +  "quota.details": "Details",
 +  "quota.remaining": "{{name}} · {{percent}}% remaining",
 +  "quota.checked": "Checked: {{time}}",
@@ -770,7 +863,7 @@
    "server.status.authentication": "Authentication required",
 --- a/packages/app/src/runtime/i18n/ko.ts
 +++ b/packages/app/src/runtime/i18n/ko.ts
-@@ -1,4 +1,22 @@
+@@ -1,4 +1,24 @@
  export const dict = {
 +  "quota.title": "사용량",
 +  "quota.refresh": "새로고침",
@@ -785,6 +878,8 @@
 +  "quota.loading": "실제 사용량 조회 중…",
 +  "quota.arguments": "/left 또는 /사용량만 입력하세요.",
 +  "quota.unavailable": "사용량을 조회할 수 없습니다. 새로고침해 주세요.",
++  "quota.connectGo": "OpenCode Go 연결 필요",
++  "quota.connectOpenAI": "OpenAI 연결 필요",
 +  "quota.details": "상세",
 +  "quota.remaining": "{{name}} · {{percent}}% 남음",
 +  "quota.checked": "확인: {{time}}",

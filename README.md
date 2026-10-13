@@ -12,6 +12,8 @@ There are no expandable details. An outlined **Close usage** button hides the pa
 
 For Go's 5h window, `resetsAt: null` means **Starts on first use**, matching the official deployed Console JavaScript. Other null reset times remain unavailable. The browser does not invent reset timestamps.
 
+Missing connections or unsupported authentication show **OpenAI connection required** or **OpenCode Go connection required** for that provider. Quotas from a connected provider stay visible. Timeouts, server errors and rejected credentials remain lookup errors rather than being labelled as missing connections.
+
 ### Install the server plugin
 
 Clone this repository, then add its absolute directory path to the V2 server's `opencode.json` or `opencode.jsonc` `plugins` array:
@@ -90,7 +92,7 @@ Unlike the V2 collector, this legacy widget can fall back from integration acces
 
 ## Verification and limits
 
-The publication checks cover 25 collector/RPC tests, 41 proxy tests and 37 UI tests, plus the pinned upstream production build. The generated service worker is exercised with online navigation, offline fallback and API/auth route exclusions. On the deployed Android UI, the user confirmed that the old Details control disappeared and the requested panel changes became visible.
+The publication checks cover 25 collector/RPC tests, 41 proxy tests and 46 UI tests, plus the pinned upstream production build. The generated service worker is exercised with online navigation, offline fallback and API/auth route exclusions. On the deployed Android UI, the user confirmed that the old Details control disappeared and the requested panel changes became visible. Connection guidance is covered by DOM tests; live account connections were not removed for testing.
 
 Document navigation reads current HTML from the server, with a runtime cache fallback when offline. Hashed assets remain precached. When updating an existing deployment, copy assets first, replace `index.html`, then replace `sw.js`; retain older hashed assets for open tabs. The update does not force-reload a tab or clear cookies and conversation storage. An old open tab may need to be closed and reopened after the new worker activates.
 
