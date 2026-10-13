@@ -1,97 +1,101 @@
-# opencode-go-usage (TUI plugin)
+# opencode-go-usage
 
-**English** | [한국어](README.ko.md)
+Read Go and Codex quota limits in OpenCode. The recommended setup is a source-built OpenCode 2.0.22 browser UI with this project's server quota RPC. The original embedded UI has a chat fallback that consumes one model response. The legacy Go TUI sidebar is separate.
 
-An [OpenCode](https://opencode.ai) CLI plugin that puts your **OpenCode Go / Go Plus** usage in the TUI **sidebar**: how much room is left in each window, and when it resets.
+[한국어](README.ko.md)
 
-```
-5H    ▓▓▓▓▓░ 88% · 1h12m   ← 5-hour window
-주간  ▓▓░░░░ 37% · 3d4h    ← weekly
-월간  ▓░░░░░ 12% · 12d     ← monthly
-```
+## Browser UI
 
-- Reads the same meters as [Console](https://opencode.ai/console) → Usage, so the numbers match what the plan actually enforces
-- Color by headroom: green (≥40%) / yellow (<40%) / red (≤10%)
-- Refreshes every 45 seconds by default
-- No dollar amounts, no totals — just percentage, bar, and reset ETA per row
-- If the console can't be reached (offline, expired login) it falls back to a rough local estimate and marks the row with `~`
+Submit `/left` or `/사용량` in the normal composer, without arguments. The patched UI reads `go-codex-quota.read` and shows remaining percentages and bars above the composer. It creates no model request or chat message. `/usage` is not registered.
 
-Labels are `5H / 주간 / 월간` by default; set `"locale": "en"` for `5H / WEEK / MONTH`.
+There are no expandable details. An outlined **Close usage** button hides the panel, including during a pending read; either alias opens it again. Reset countdowns appear on the right as total hours and minutes, rather than days. The visible countdown updates every minute without polling the quota API; **Refresh** reads a new snapshot.
 
-## Install (other machines)
+For Go's 5h window, `resetsAt: null` means **Starts on first use**, matching the official deployed Console JavaScript. Other null reset times remain unavailable. The browser does not invent reset timestamps.
 
-**One-liner via git — no cli.json edits, no node_modules:**
+### Install the server plugin
+
+Clone this repository, then add its absolute directory path to the V2 server's `opencode.json` or `opencode.jsonc` `plugins` array:
 
 ```sh
-git clone https://github.com/HaYanJongSeong/opencode-go-usage \
-  ~/.config/opencode/plugins/opencode-go-usage
+git clone https://github.com/HaYanJongSeong/opencode-go-usage.git
 ```
-
-OpenCode discovers plugins under `<global-config>/plugins/<name>/tui.tsx` automatically, so this path alone is enough.
-
-If you prefer `~/.config/opencode/cli.json`:
 
 ```json
 {
-  "plugins": [
-    {
-      "package": "~/.config/opencode/plugins/opencode-go-usage",
-      "options": { "locale": "en" }
-    }
-  ]
+  "plugins": ["/absolute/path/opencode-go-usage"]
 }
 ```
 
-## npm (planned / manual)
+Merge this entry with existing plugins. Reload or restart the server through your usual procedure. The default export loads `index.mjs`, which registers both the RPC and the chat commands. `./rpc` exports the RPC contract; loading that contract alone does not install the server handler. `./tui` exports the legacy sidebar, not the browser panel. The package manifest's name is currently `prometheus-side-bar`; these instructions use the local GitHub checkout, not an assumed npm release.
+
+### Build and serve the browser UI
+
+Requires Git and a working Bun installation supported by your platform. Use the pinned upstream commit, not an arbitrary OpenCode release:
 
 ```sh
-git clone https://github.com/HaYanJongSeong/opencode-go-usage
-cd opencode-go-usage
-npm publish
+git clone https://github.com/anomalyco/opencode.git opencode-source
+cd opencode-source
+git checkout 527f0b931d1f9b3ebd34e106c51b31ce5db5b075
+git apply --check ../opencode-go-usage/web-ui-v2.0.22.patch
+git apply ../opencode-go-usage/web-ui-v2.0.22.patch
+bun install --frozen-lockfile --ignore-scripts --filter '@opencode/app'
+OPENCODE_CHANNEL=latest VITE_OPENCODE_SERVER_MODE=origin bun --bun run --cwd packages/app build
+cd ../opencode-go-usage
+bun web-server.mjs ../opencode-source/packages/app/dist
 ```
 
-## Options
+Keep the original authenticated OpenCode server running on `127.0.0.1:49374` with the RPC plugin loaded. Open the patched UI at `http://127.0.0.1:49375/`. The proxy serves built assets and forwards API/WebSocket traffic to the original server. The original embedded UI remains at `http://127.0.0.1:49374/`.
 
-| Option          | Default  | Notes                                                              |
-| --------------- | -------- | ------------------------------------------------------------------ |
-| `plan`          | `"go"`   | `go` or `goplus` — limits table used only by the local fallback     |
-| `refreshSec`    | `45`     | Poll cadence in seconds, minimum 10                                 |
-| `locale`        | `"ko"`   | `"en"` switches row labels to `5H/WEEK/MONTH`                       |
-| `source`        | `"auto"` | `auto` (console, then local) · `api` (console only) · `local`       |
-| `monthlyLimits` | —        | Per-model overrides for the local fallback, e.g. `{ "glm-5.3": 60 }` |
+Use `127.0.0.1`, not `localhost`. Pair through the normal OpenCode flow if authentication is required. The proxy forwards only the original port-specific session cookie, does not create credentials, and checks Host, Origin and Fetch Metadata. It binds to loopback only; do not expose it as a public service. The command runs in the foreground and does not install reboot autostart.
 
-## When does the widget update?
+## Quota sources and credentials
 
-| When                       | What happens                                    |
-| -------------------------- | ----------------------------------------------- |
-| TUI start                  | One fetch + render immediately                  |
-| Every `refreshSec` seconds | Re-reads the console meters                     |
-| Usage moves                | Shows up on the next poll (polling, not push)   |
+The server collector resolves the selected provider's active integration connection, rather than listing credentials or reading a local database. Go and Codex reads run in parallel and fetch fresh data.
 
-Response caching is 15 seconds, so a very short `refreshSec` won't hammer the console.
+- Go Console OAuth/key credentials require metadata identifying `https://opencode.ai/console`. The collector reads `https://opencode.ai/console/api/go/status`, using `access.meters` (`fiveHour`, `week`, `month`) with positive limits.
+- A selected legacy `opencode-go` key uses `https://opencode.ai/zen/go/v1/usage`. Console OAuth is never sent to that endpoint.
+- Codex uses the active official `openai` OAuth connection and `https://chatgpt.com/backend-api/wham/usage`. Windows come from the response. This is Codex quota, not total ChatGPT consumption; the Pro label appears only when the API returns `pro`.
 
-## Example screenshot
+Failures remain errors, not local estimates. HTTP reads reject redirects, have a 10-second timeout and cap response bodies at 128 KiB. Parsed quota fields and fixed errors reach the UI/tool, not raw responses, tokens or account/organization IDs. Cancellation reaches HTTP reads, but immediate cancellation of credential resolution is not guaranteed. Backend response contracts can change.
 
-![Sidebar preview (English)](assets/preview-en.svg)
+## Original embedded UI fallback
 
-![Sidebar preview (Korean)](assets/preview.svg)
+Without the browser patch, `/left` and `/사용량` invoke the server chat command. It collects a sanitized Markdown snapshot, then asks the session's current model to echo it. This consumes one model response and may add usage or cost. The displayed values precede that response; exact model echo is not guaranteed. The existing session and delivery mode are retained.
 
-## Where the numbers come from
+The read-only `usage_status` tool returns a sanitized JSON snapshot without itself requesting a model response. It uses the same collector and no local cost estimate. A model-driven tool invocation is still part of a model conversation.
 
-`GET https://opencode.ai/console/api/go/status`, with the OpenCode login token already on disk (the `opencode` credential in `~/.local/share/opencode/opencode.db`) — the same credential the CLI uses. The response carries one meter per window:
+`/left test` and `/사용량 test` in the unpatched interface run mocked tests without real quota requests or a model response. Results go to the test suite's configured local output file, not chat. The patched browser accepts only the bare aliases, so run tests directly when using it:
 
-```
-fiveHour · week · month   →   usedMicroCents, limitMicroCents, resetsAt
+```sh
+bun -e 'const r = await (await import("./usage.test.mjs")).runTests(); console.log({ passed: r.passed, total: r.total }); if (!r.passed) process.exit(1)'
+bun test web-server.test.mjs
+bun web-ui-sw.test.mjs ../opencode-source/packages/app/dist/sw.js
 ```
 
-Remaining % is `1 - used/limit`, and the countdown is `resetsAt` minus now, so the rows track the Console (and the `retry-after` you get when the 5-hour limit is spent).
+## Legacy Go TUI sidebar
 
-The token is only read. The plugin never refreshes, rotates, or writes it.
+The unchanged `tui.tsx` implementation shows Go remaining percentages, six-cell bars and reset ETAs. It does not show Codex. It refreshes at startup and every 45 seconds by default, with a 15-second Console-response cache. Colors are green above 40% remaining, yellow above 10% through 40%, and red at 10% or less. Labels default to `5H / 주간 / 월간`; `locale: "en"` uses `5H / WEEK / MONTH`.
 
-### The fallback
+Load `tui.tsx` or the package's `./tui` export using a compatible TUI plugin loader. Browser/server plugin registration does not add a TUI sidebar. This older implementation depends on the TUI APIs and peer dependencies listed in `package.json`; automatic discovery across OpenCode versions is not verified here.
 
-If the console call fails, the plugin sums local session records instead (per-message `cost` and timestamp, per model, against the monthly limits from the [Go plan docs](https://opencode.ai/v2/docs/console/go)) and appends `~` to the rows. That estimate runs low compared to the server's accounting, so treat it as a last resort — it's what you'd see while offline.
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `plan` | `"go"` | `go` or `goplus`; built-in limits for local estimates only |
+| `refreshSec` | `45` | Poll interval in seconds, minimum 10 |
+| `locale` | `"ko"` | Korean or `"en"` row labels |
+| `source` | `"auto"` | Console then local estimate; `"api"` disables estimates; `"local"` skips Console |
+| `monthlyLimits` | unset | Per-model overrides for local estimates |
+
+Unlike the V2 collector, this legacy widget can fall back from integration access to credential listing and the local OpenCode database. With `source: "auto"` or `"local"`, it estimates usage from local message costs and built-in plan limits, marking rows with `~`. Its estimated reset times are local heuristics, not API reset times. Use `source: "api"` to avoid those estimates. Built-in limits may be outdated and local records may be incomplete.
+
+## Verification and limits
+
+The publication checks cover 25 collector/RPC tests, 41 proxy tests and 37 UI tests, plus the pinned upstream production build. The generated service worker is exercised with online navigation, offline fallback and API/auth route exclusions. On the deployed Android UI, the user confirmed that the old Details control disappeared and the requested panel changes became visible.
+
+Document navigation reads current HTML from the server, with a runtime cache fallback when offline. Hashed assets remain precached. When updating an existing deployment, copy assets first, replace `index.html`, then replace `sw.js`; retain older hashed assets for open tabs. The update does not force-reload a tab or clear cookies and conversation storage. An old open tab may need to be closed and reopened after the new worker activates.
+
+Automated Brave/Gboard interaction, a light/dark mobile screenshot matrix and browser-cookie integration tests are not available in this environment. Full upstream typecheck still fails on existing typing issues and missing Storybook dependencies from the filtered install. The changed quota files have no reported diagnostics, and the service-worker configuration passes a separate typecheck. One upstream submission test also fails against the original source. These limits are not presented as passing checks.
 
 ## License
 
-MIT
+MIT. See [LICENSE](LICENSE).
