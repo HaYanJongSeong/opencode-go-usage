@@ -8,7 +8,7 @@ Read Go and Codex quota limits in OpenCode. The recommended setup is a source-bu
 
 Submit `/left` or `/사용량` in the normal composer, without arguments. The patched UI reads `go-codex-quota.read` and shows remaining percentages and bars above the composer. It creates no model request or chat message. `/usage` is not registered.
 
-There are no expandable details. An outlined **Close usage** button hides the panel, including during a pending read; either alias opens it again. Reset countdowns appear on the right as total hours and minutes, rather than days. The visible countdown updates every minute without polling the quota API; **Refresh** reads a new snapshot.
+There are no expandable details. An outlined **Close usage** button hides the panel, including during a pending read; either alias opens it again. Reset countdowns appear on the right: hours and minutes below 24 hours, days and remaining hours from 24 hours onward (for example, `2D 3H`). The visible countdown updates every minute without polling the quota API; **Refresh** reads a new snapshot.
 
 For Go's 5h window, `resetsAt: null` means **Starts on first use**, matching the official deployed Console JavaScript. Other null reset times remain unavailable. The browser does not invent reset timestamps.
 

@@ -258,7 +258,7 @@
      const image = {
 --- /dev/null
 +++ b/packages/app/src/composer/quota.ts
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,82 @@
 +import { Schema } from "effect"
 +import { createStore } from "solid-js/store"
 +import { onCleanup } from "solid-js"
@@ -286,9 +286,10 @@
 +  const reset = resetsAt === null ? NaN : Date.parse(resetsAt)
 +  if (!Number.isFinite(reset)) return { key: "quota.resetMissing" as const, params: { days: 0, hours: 0, minutes: 0 } }
 +  const minutes = Math.floor(Math.max(0, reset - now) / 60_000)
-+  const params = { days: Math.floor(minutes / 1440), hours: Math.floor(minutes / 60), minutes: minutes % 60 }
++  const params = { days: Math.floor(minutes / 1440), hours: Math.floor(minutes / 60) % 24, minutes: minutes % 60 }
 +  if (reset <= now) return { key: "quota.resetDue" as const, params }
 +  if (minutes < 1) return { key: "quota.resetSoon" as const, params }
++  if (minutes >= 1440) return { key: "quota.resetDays" as const, params }
 +  return { key: "quota.resetHours" as const, params }
 +}
 +
@@ -546,7 +547,7 @@
 +}
 --- /dev/null
 +++ b/packages/app/src/composer/quota.test.ts
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,74 @@
 +import { expect, test } from "bun:test"
 +import { createRoot } from "solid-js"
 +import { createQuotaController, formatQuotaReset, parseQuotaSnapshot, QuotaSnapshot } from "./quota"
@@ -568,8 +569,12 @@
 +    ["2026-10-13T12:59:59Z", "quota.resetHours", 0, 0, 59],
 +    ["2026-10-13T13:00:00Z", "quota.resetHours", 0, 1, 0],
 +    ["2026-10-13T14:10:00Z", "quota.resetHours", 0, 2, 10],
-+    ["2026-10-14T12:00:00Z", "quota.resetHours", 1, 24, 0],
-+    ["2026-10-15T15:10:00Z", "quota.resetHours", 2, 51, 10],
++    ["2026-10-14T11:59:59Z", "quota.resetHours", 0, 23, 59],
++    ["2026-10-14T12:00:00Z", "quota.resetDays", 1, 0, 0],
++    ["2026-10-14T12:01:00Z", "quota.resetDays", 1, 0, 1],
++    ["2026-10-15T11:59:59Z", "quota.resetDays", 1, 23, 59],
++    ["2026-10-15T12:00:00Z", "quota.resetDays", 2, 0, 0],
++    ["2026-10-15T15:10:00Z", "quota.resetDays", 2, 3, 10],
 +  ] as const) {
 +    const result = formatQuotaReset(input, now)
 +    expect(result.key).toBe(key)
@@ -619,7 +624,7 @@
 +})
 --- /dev/null
 +++ b/packages/app/test-browser/quota-panel.test.tsx
-@@ -0,0 +1,212 @@
+@@ -0,0 +1,213 @@
 +import { expect, setSystemTime, spyOn, test } from "bun:test"
 +import { render } from "solid-js/web"
 +import { PlatformProvider } from "@/runtime/platform/platform"
@@ -779,7 +784,7 @@
 +  const snapshot = {
 +    checkedAt: "2026-10-13T12:00:00Z",
 +    go: { label: "Go", checkedAt: "2026-10-13T12:00:00Z", windows: [{ name: "Weekly", usedPercent: 10, remainingPercent: 90, resetsAt: "2026-10-13T14:10:00Z" }] },
-+    codex: { label: "Codex", checkedAt: "2026-10-13T12:00:00Z", windows: [{ name: "5h", usedPercent: 20, remainingPercent: 80, resetsAt: "2026-10-15T15:00:00Z" }, { name: "Weekly", usedPercent: 30, remainingPercent: 70, resetsAt: null }] },
++    codex: { label: "Codex", checkedAt: "2026-10-13T12:00:00Z", windows: [{ name: "5h", usedPercent: 20, remainingPercent: 80, resetsAt: "2026-10-15T15:00:00Z" }, { name: "Weekly", usedPercent: 30, remainingPercent: 70, resetsAt: null }, { name: "Daily", usedPercent: 10, remainingPercent: 90, resetsAt: "2026-10-14T12:00:00Z" }] },
 +  }
 +  try {
 +    const pending = quota?.refresh()
@@ -801,7 +806,7 @@
 +      await Promise.resolve()
 +      await Promise.resolve()
 +      expect(Array.from(host.querySelectorAll(".composer-quota-reset"), (node) => node.textContent)).toEqual([
-+        "2H 10M후 리셋", "51H 0M후 리셋", "리셋 시각 미제공",
++        "2H 10M후 리셋", "2D 3H후 리셋", "리셋 시각 미제공", "1D 0H후 리셋",
 +      ])
 +      const index = intervals.mock.calls.findLastIndex((call) => call[1] === 60_000)
 +      const tick = intervals.mock.calls[index]?.[0]
@@ -810,6 +815,7 @@
 +      setSystemTime(new Date("2026-10-13T12:01:00Z"))
 +      if (typeof tick === "function") tick()
 +      expect(host.querySelector(".composer-quota-reset")?.textContent).toBe("2H 9M후 리셋")
++      expect(host.querySelectorAll(".composer-quota-reset")[3]?.textContent).toBe("23H 59M후 리셋")
 +      expect(requests.length).toBe(reads)
 +      host.querySelector<HTMLButtonElement>(".composer-quota-close")?.click()
 +      expect(host.querySelector("section")).toBeNull()
@@ -847,7 +853,7 @@
 +  "quota.resetDue": "Reset time reached",
 +  "quota.resetMinutes": "Reset in {{minutes}}m",
 +  "quota.resetHours": "Reset in {{hours}}H {{minutes}}M",
-+  "quota.resetDays": "Reset in {{days}}d {{hours}}h",
++  "quota.resetDays": "Reset in {{days}}D {{hours}}H",
 +  "quota.loading": "Checking usage limits…",
 +  "quota.arguments": "Use /left or /사용량 without arguments.",
 +  "quota.unavailable": "Usage limits are unavailable. Try refreshing.",
@@ -874,7 +880,7 @@
 +  "quota.resetDue": "리셋 시각 도달",
 +  "quota.resetMinutes": "리셋 {{minutes}}분 후",
 +  "quota.resetHours": "{{hours}}H {{minutes}}M후 리셋",
-+  "quota.resetDays": "리셋 {{days}}일 {{hours}}시간 후",
++  "quota.resetDays": "{{days}}D {{hours}}H후 리셋",
 +  "quota.loading": "실제 사용량 조회 중…",
 +  "quota.arguments": "/left 또는 /사용량만 입력하세요.",
 +  "quota.unavailable": "사용량을 조회할 수 없습니다. 새로고침해 주세요.",
