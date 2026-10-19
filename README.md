@@ -4,6 +4,34 @@ Read Go and Codex quota limits in OpenCode. The recommended setup pairs a source
 
 [한국어](README.ko.md)
 
+## Termux shell commands
+
+With Python 3.14 available and the [server plugin](#install-the-server-plugin) already loaded, run this from the checkout:
+
+```sh
+bash scripts/install-left.sh
+```
+
+The installer adds three names for the same program:
+
+| Termux or OpenCode shell mode | OpenCode normal input |
+| --- | --- |
+| `left` | `!left` |
+| `Left` | `!Left` |
+| `사용량` | `!사용량` |
+
+In OpenCode, `!` enters shell mode from an empty normal composer. If the composer is already in shell mode, enter only the command name, without another `!`.
+
+Each run reads fresh Go and Codex quotas through `go-codex-quota.read` and prints remaining percentages and reset times in Korean. It does not call a model or add a chat message. The existing `/left` and `/사용량` slash commands are separate and unchanged. No browser patch is needed for the shell commands.
+
+The result also replaces `~/left-snapshot.md` with permissions `0600`. A failed read or cancellation removes the old figures from that snapshot. Attaching the file does not refresh it; run the command again for a new reading. Codex figures are Codex quota, not total ChatGPT usage.
+
+The installed names link to `scripts/left.py` in this checkout. Keep the checkout at the same path. Reinstalling leaves matching links alone and refuses to overwrite another file, link or directory with the same name. See [the shell guide](scripts/left.md) for the local connection checks and settings-restore command.
+
+```sh
+python -m unittest discover -s scripts/tests -p 'test_left*.py' -v
+```
+
 ## Browser UI
 
 Submit `/left` or `/사용량` in the normal composer with no arguments. The patched UI reads `go-codex-quota.read` and shows remaining percentages and bars above the composer without creating a model request or chat message. `/usage` is not registered.

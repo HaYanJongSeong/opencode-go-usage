@@ -4,6 +4,34 @@ OpenCode에서 Go와 Codex 한도를 조회합니다. OpenCode 2.0.22 소스를 
 
 [English](README.md)
 
+## Termux 셸 명령
+
+Python 3.14가 있고 [서버 플러그인](#서버-플러그인-설치)이 이미 로드돼 있다면 저장소 폴더에서 설치합니다.
+
+```sh
+bash scripts/install-left.sh
+```
+
+`left`, `Left`, `사용량`은 이름만 다르고 같은 프로그램을 실행합니다.
+
+| Termux 또는 OpenCode 셸 모드 | OpenCode 일반 입력창 |
+| --- | --- |
+| `left` | `!left` |
+| `Left` | `!Left` |
+| `사용량` | `!사용량` |
+
+OpenCode의 빈 일반 입력창에서 `!`를 누르면 셸 모드로 들어갑니다. 이미 셸 모드라면 느낌표를 다시 붙이지 말고 명령 이름만 입력하세요.
+
+실행할 때마다 `go-codex-quota.read` RPC로 Go·Codex 잔여율과 리셋까지 남은 시간을 조회합니다. 모델을 호출하거나 대화 메시지를 만들지 않습니다. 기존 `/left`·`/사용량` 슬래시 명령과는 별개이며 셸 명령에는 웹 UI 패치가 필요하지 않습니다.
+
+조회 결과는 권한 `0600`인 `~/left-snapshot.md`에도 저장합니다. 조회에 실패하거나 취소하면 이전 수치를 지웁니다. 파일을 첨부해도 재조회하지 않으니 새 수치가 필요하면 명령을 다시 실행하세요. Codex 수치는 ChatGPT 전체 사용량이 아니라 Codex 한도입니다.
+
+설치한 이름은 이 저장소의 `scripts/left.py`를 가리킵니다. 설치 후 저장소를 옮기거나 지우지 마세요. 같은 링크에는 다시 설치해도 되지만 이름이 겹치는 다른 파일·링크·디렉터리는 덮어쓰지 않습니다. 로컬 연결 확인과 설정 복원 방법은 [셸 명령 안내](scripts/left.md)에 있습니다.
+
+```sh
+python -m unittest discover -s scripts/tests -p 'test_left*.py' -v
+```
+
 ## 웹 UI
 
 일반 입력 모드에서 인자 없이 `/left` 또는 `/사용량`을 제출하면 수정 UI가 `go-codex-quota.read`로 조회한 잔여율과 막대를 입력창 위에 표시합니다. 모델 요청이나 대화 메시지를 만들지 않습니다. `/usage`는 등록하지 않습니다.
