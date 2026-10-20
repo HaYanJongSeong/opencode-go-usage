@@ -44,7 +44,7 @@ Go 5h 창의 `resetsAt: null`은 **첫 사용 시 시작**으로 표시하며 �
 
 ### 서버 플러그인 설치
 
-저장소를 복제한 뒤 V2 서버의 `opencode.json` 또는 `opencode.jsonc`에 있는 `plugins` 배열에 저장소의 절대 경로를 추가합니다.
+저장소를 복제한 뒤 V2 서버의 `opencode.json` 또는 `opencode.jsonc`에서 `plugins` 배열에 저장소의 절대 경로를 추가합니다.
 
 ```sh
 git clone https://github.com/HaYanJongSeong/opencode-go-usage.git
@@ -86,7 +86,7 @@ bun web-server.mjs ../opencode-source/packages/app/dist
 
 서버 수집기는 자격증명 목록이나 로컬 DB 대신 선택된 제공자의 활성 integration 연결을 해석합니다. Go와 Codex를 병렬로 조회하며 매번 새 데이터를 읽습니다.
 
-- Go Console OAuth/key는 metadata에 `https://opencode.ai/console`이 지정되어 있어야 합니다. `https://opencode.ai/console/api/go/status`의 `access.meters`에서 양수 한도를 가진 `fiveHour`, `week`, `month`를 읽습니다.
+- Go Console OAuth/key는 metadata에 `https://opencode.ai/console`이 지정되어 있어야 합니다. `https://opencode.ai/console/api/go/status`의 `access.meters`에서 한도가 양수인 `fiveHour`, `week`, `month`를 읽습니다.
 - 선택된 레거시 `opencode-go` key는 `https://opencode.ai/zen/go/v1/usage`를 사용합니다. Console OAuth는 이 주소로 보내지 않습니다.
 - Codex는 공식 `openai` OAuth의 활성 연결로 `https://chatgpt.com/backend-api/wham/usage`를 조회합니다. 시간창은 응답에서 읽습니다. ChatGPT 전체 사용량이 아니며 API가 `pro`를 반환할 때만 Pro 라벨을 표시합니다.
 
@@ -98,7 +98,7 @@ bun web-server.mjs ../opencode-source/packages/app/dist
 
 웹 패치 없이 `/left` 또는 `/사용량`을 실행하면 서버 채팅 명령이 동작합니다. 정제한 Markdown 스냅샷을 조회한 뒤 현재 세션 모델에 그대로 출력하도록 요청합니다. 모델 응답 1회가 발생하므로 사용량이나 비용이 추가될 수 있습니다. 수치는 그 응답 전 조회값이며 모델의 정확한 원문 출력은 보장하지 않습니다. 기존 세션과 전달 모드는 유지합니다.
 
-읽기 전용 `usage_status` 도구는 자체적으로 모델 응답을 요청하지 않고 정제한 JSON 스냅샷을 반환합니다. 같은 수집기를 사용하며 로컬 비용 추정은 없습니다. 모델이 이 도구를 호출하는 경우 그 호출은 여전히 모델 대화의 일부입니다.
+읽기 전용 `usage_status` 도구는 자체적으로 모델 응답을 요청하지 않고 정제한 JSON 스냅샷을 반환합니다. 같은 수집기를 사용하며 로컬 비용 추정은 없습니다. 모델이 이 도구를 호출하면 그 호출은 여전히 모델 대화의 일부입니다.
 
 수정하지 않은 UI의 `/left test` 또는 `/사용량 test`는 실제 한도 조회나 모델 응답 없이 모의 테스트를 실행합니다. 결과는 채팅 대신 테스트 코드에 지정된 로컬 파일에 저장합니다. 수정 웹 UI는 인자 없는 명령만 허용하므로 테스트는 직접 실행하세요.
 

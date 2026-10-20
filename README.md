@@ -24,9 +24,9 @@ In OpenCode, `!` enters shell mode from an empty normal composer. If the compose
 
 Each run reads fresh Go and Codex quotas through `go-codex-quota.read` and prints remaining percentages and reset times in Korean. It does not call a model or add a chat message. The existing `/left` and `/사용량` slash commands are separate and unchanged. No browser patch is needed for the shell commands.
 
-The result also replaces `~/left-snapshot.md` with permissions `0600`. A failed read or cancellation removes the old figures from that snapshot. Attaching the file does not refresh it; run the command again for a new reading. Codex figures are Codex quota, not total ChatGPT usage.
+The command also replaces `~/left-snapshot.md` with permissions `0600`. A failed read or cancellation removes the old figures from that snapshot. Attaching the file does not refresh it; run the command again for a new reading. Codex figures are Codex quota, not total ChatGPT usage.
 
-The installed names link to `scripts/left.py` in this checkout. Keep the checkout at the same path. Reinstalling leaves matching links alone and refuses to overwrite another file, link or directory with the same name. See [the shell guide](scripts/left.md) for the local connection checks and settings-restore command.
+The installed names link to `scripts/left.py` in this checkout. Keep the checkout at the same path. On reinstall, the installer leaves matching links alone and refuses to overwrite another file, link or directory with the same name. See [the shell guide](scripts/left.md) for the local connection checks and settings-restore command.
 
 ```sh
 python -m unittest discover -s scripts/tests -p 'test_left*.py' -v
@@ -40,7 +40,7 @@ Use the outlined "Close usage" button to hide the panel, even while a read is pe
 
 Reset countdowns appear on the right. Below 24 hours, they show hours and minutes; from 24 hours onward, they show days and remaining hours, such as `2D 3H`. The visible countdown updates every minute without polling the quota API. "Refresh" reads a new snapshot.
 
-For Go's 5h window, `resetsAt: null` shows "Starts on first use", as in the official deployed Console JavaScript. Other null reset times remain unavailable. The browser does not invent reset timestamps.
+When Go's 5h window has `resetsAt: null`, the panel shows "Starts on first use", as in the official deployed Console JavaScript. Other null reset times remain unavailable. The browser does not invent reset timestamps.
 
 The panel shows "OpenAI connection required" or "OpenCode Go connection required" when that provider has no connection or uses unsupported authentication. Quotas from a connected provider stay visible. Timeouts, server errors and rejected credentials remain lookup errors, not missing-connection messages.
 
@@ -78,7 +78,7 @@ cd ../opencode-go-usage
 bun web-server.mjs ../opencode-source/packages/app/dist
 ```
 
-Keep the original authenticated OpenCode server running on `127.0.0.1:49374` with the RPC plugin loaded. Open the patched UI at `http://127.0.0.1:49375/`. The proxy serves the built assets and forwards API/WebSocket traffic to the original server, whose embedded UI remains at `http://127.0.0.1:49374/`.
+Keep the original authenticated OpenCode server running on `127.0.0.1:49374` with the RPC plugin loaded. Open the patched UI at `http://127.0.0.1:49375/`. The proxy serves the built assets and forwards API/WebSocket traffic to the original server. The original embedded UI remains at `http://127.0.0.1:49374/`.
 
 Use `127.0.0.1`, not `localhost`. If authentication is required, pair through the normal OpenCode flow. The proxy forwards only the original port-specific session cookie and does not create credentials. It checks Host, Origin and Fetch Metadata and binds only to loopback. Do not expose it as a public service.
 
@@ -92,7 +92,7 @@ The server collector looks up the selected provider's active integration connect
 - A selected legacy `opencode-go` key uses `https://opencode.ai/zen/go/v1/usage`. Console OAuth is never sent to that endpoint.
 - Codex uses the active official `openai` OAuth connection to read `https://chatgpt.com/backend-api/wham/usage`. Its quota windows come from the response. These values are Codex quota, not total ChatGPT consumption. The Pro label appears only when the API returns `pro`.
 
-Failed reads return errors, not local estimates. HTTP reads reject redirects, time out after 10 seconds and cap response bodies at 128 KiB. Only parsed quota fields and fixed errors reach the UI/tool; raw responses, tokens and account/organization IDs are not passed through.
+Failed reads return errors, not local estimates. HTTP reads reject redirects, time out after 10 seconds and cap response bodies at 128 KiB. The collector sends only parsed quota fields and fixed errors to the UI/tool, not raw responses, tokens or account/organization IDs.
 
 Cancellation reaches HTTP reads, but the credential lookup may not stop immediately. The backend APIs may change their responses.
 
@@ -102,7 +102,7 @@ Without the browser patch, `/left` and `/사용량` run the server chat command.
 
 The read-only `usage_status` tool returns a sanitized JSON snapshot without requesting a model response itself. It uses the same collector and does not make a local cost estimate. If a model invokes the tool, that invocation is still part of a model conversation.
 
-In the unpatched interface, `/left test` and `/사용량 test` run mocked tests without real quota requests or a model response. Results go to the test suite's configured local output file rather than chat. The patched browser accepts only the bare aliases, so run the tests directly when using it:
+In the unpatched interface, `/left test` and `/사용량 test` run mocked tests without real quota requests or a model response. The test suite writes results to its configured local output file rather than chat. The patched browser accepts only the bare aliases, so run the tests directly when using it:
 
 ```sh
 bun -e 'const r = await (await import("./usage.test.mjs")).runTests(); console.log({ passed: r.passed, total: r.total }); if (!r.passed) process.exit(1)'
@@ -132,7 +132,7 @@ Use `source: "api"` to avoid estimates. The built-in limits may be outdated, and
 
 ## Verification and limits
 
-The publication checks include 25 collector/RPC tests, 41 proxy tests and 46 UI tests, plus a production build of the pinned upstream commit. The generated service worker is tested for online navigation, offline fallback and API/auth route exclusions.
+The publication checks include 25 collector/RPC tests, 41 proxy tests and 46 UI tests, plus a production build of the pinned upstream commit. Tests of the generated service worker cover online navigation, offline fallback and API/auth route exclusions.
 
 On the deployed Android UI, the user confirmed that the old Details control was gone and the requested panel changes were visible. DOM tests cover the connection guidance; live account connections were not removed for testing.
 
