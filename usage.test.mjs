@@ -36,7 +36,7 @@ function mock({ go = consoleCred, codex = codexCred, integration = "opencode", l
 function json(body, status = 200) { return new Response(JSON.stringify(body), { status }) }
 function fakeFetch(url) { return Promise.resolve(json(url.includes("chatgpt.com") ? codexBody : consoleBody)) }
 
-export async function runTests() {
+export async function runTests({ writeResults = true } = {}) {
   const tests = []
   async function test(name, fn) {
     try { await fn(); tests.push({ name, passed: true }) }
@@ -231,7 +231,9 @@ export async function runTests() {
     assert(m.prompts.length === 0 && !JSON.stringify(snapshot).includes("fixture-"))
   })
   const result = { passed: tests.every((item) => item.passed), total: tests.length, tests, resultsFile }
-  await mkdir(resultsFile.slice(0, resultsFile.lastIndexOf("/")), { recursive: true })
-  await writeFile(resultsFile, JSON.stringify(result, null, 2) + "\n", { mode: 0o600 })
+  if (writeResults) {
+    await mkdir(resultsFile.slice(0, resultsFile.lastIndexOf("/")), { recursive: true })
+    await writeFile(resultsFile, JSON.stringify(result, null, 2) + "\n", { mode: 0o600 })
+  }
   return result
 }

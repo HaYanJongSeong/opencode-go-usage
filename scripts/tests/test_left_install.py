@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -90,6 +91,30 @@ class InstallTests(unittest.TestCase):
                 self.assertNotEqual(self.context.read_bytes(), b"previous")
                 self.assertEqual([row[0] for row in wire.requests], ["GET", "POST"])
                 self.assertFalse(self.calls.exists())
+
+    def test_preserves_success_with_exit_zero_when_each_alias_has_a_partial_error(self) -> None:
+        self.assertEqual(self.install().returncode, 0)
+        for name in NAMES:
+            for failed, code, label, successful in (("go", "schema", "Go 오류:", "Codex 남음: 7d 57%"),
+                                                    ("codex", "schema", "Codex 오류:", "Go 남음: 5h 0%"),
+                                                    ("go", "expired", "Go: 구독기간 만료", "Codex 남음: 7d 57%")):
+                with self.subTest(name=name, failed=failed, code=code), service() as wire:
+                    data = json.loads(snapshot())
+                    data["output"][failed] = {"error": {"code": code, "message": "fixture-secret"}}
+                    wire.output = json.dumps(data).encode("utf-8")
+                    register(self.root, wire)
+
+                    result = self.run_left(name)
+
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(len(result.stdout.splitlines()), 3)
+                    self.assertIn(label, result.stdout)
+                    self.assertIn(successful, result.stdout)
+                    self.assertEqual(result.stderr, "")
+                    self.assertNotIn("fixture-secret", result.stdout)
+                    self.assertIn("상태: 조회 실패 또는 일부 제공자 조회 불가", self.context.read_text())
+                    self.assertEqual([row[0] for row in wire.requests], ["GET", "POST"])
+                    self.assertFalse(self.calls.exists())
 
     def test_calls_nothing_when_each_alias_receives_arguments(self) -> None:
         self.assertEqual(self.install().returncode, 0)

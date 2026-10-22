@@ -32,6 +32,7 @@ ERRORS: Final = {
     "cancelled": "조회 취소",
     "size": "응답 크기 초과",
     "json": "올바르지 않은 JSON 응답",
+    "expired": "구독기간 만료",
     "schema": "지원되지 않는 사용량 응답",
 }
 
@@ -67,7 +68,7 @@ def reset_label(timestamp: str | None, checked: datetime) -> str:
 
 
 def format_usage(raw: str) -> tuple[str, int]:
-    """Parse only display fields; never echo raw responses or error details."""
+    """Return display fields and the number of providers that failed."""
     snapshot = json.loads(raw)["output"]
     timestamp = snapshot["checkedAt"]
     if not isinstance(timestamp, str):
@@ -77,12 +78,14 @@ def format_usage(raw: str) -> tuple[str, int]:
         raise InvalidQuotaResponse
     local = checked.astimezone(KST)
     lines = [f"확인: {local:%m.%d %H:%M} GMT+9"]
-    status = 0
+    failures = 0
     for key, label in (("go", "Go"), ("codex", "Codex")):
         section = snapshot[key]
         if "error" in section:
-            lines.append(f"{label}: {ERRORS[section['error']['code']]}")
-            status = 1
+            code = section["error"]["code"]
+            prefix = label if code == "expired" else f"{label} 오류"
+            lines.append(f"{prefix}: {ERRORS[code]}")
+            failures += 1
             continue
         windows = section["windows"]
         if not isinstance(windows, list) or not windows:
@@ -97,7 +100,7 @@ def format_usage(raw: str) -> tuple[str, int]:
             percent = f"{remaining:.2f}".rstrip("0").rstrip(".")
             rows.append(f"{name} {percent}% ({reset_label(window['resetsAt'], checked)})")
         lines.append(f"{label} 남음: {' · '.join(rows)}")
-    return "\n".join(lines), status
+    return "\n".join(lines), failures
 
 
 def save_context(output: str, status: int) -> None:
@@ -123,18 +126,19 @@ def main() -> int:
         return 2
     available = True
     try:
-        output, status = format_usage(read_usage())
+        output, failures = format_usage(read_usage())
+        status = int(failures == 2)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
         attempted = datetime.now(KST).strftime("%m.%d %H:%M GMT+9")
         output = f"조회 시도: {attempted}\nleft: 사용량을 조회하지 못했습니다. 서버와 사용량 플러그인 연결을 확인하세요."
-        status, available = 1, False
+        failures, status, available = 2, 1, False
     except KeyboardInterrupt:
         attempted = datetime.now(KST).strftime("%m.%d %H:%M GMT+9")
         output = f"조회 시도: {attempted}\nleft: 조회가 취소되었습니다."
-        status, available = 130, False
+        failures, status, available = 2, 130, False
     print(output, file=sys.stdout if available else sys.stderr)
     try:
-        save_context(output, status)
+        save_context(output, failures)
     except OSError:
         print("left: 문맥 파일 갱신 실패. @left-snapshot.md는 이전 자료일 수 있습니다.", file=sys.stderr)
         return status or 1

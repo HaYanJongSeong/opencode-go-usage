@@ -269,13 +269,30 @@ if os.environ.get("LEFT_TEST_FAIL"):
         self.assertNotIn("fixture-secret", result.stderr)
 
     def test_reports_partial_failure_when_one_provider_is_unavailable(self) -> None:
+        for code, label in (("auth", "Go 오류:"), ("expired", "Go: 구독기간 만료")):
+            with self.subTest(code=code):
+                data = json.loads(snapshot())
+                data["output"]["go"] = {"error": {"code": code, "message": "fixture-secret"}}
+
+                result = self.run_left(json.dumps(data))
+
+                self.assertEqual(result.returncode, 0)
+                self.assertIn("Codex 남음: 7d 57%", result.stdout)
+                self.assertIn(label, result.stdout)
+                self.assertNotIn("fixture-secret", result.stdout + result.stderr)
+                self.assertIn("상태: 조회 실패 또는 일부 제공자 조회 불가",
+                              (self.root / "left-snapshot.md").read_text(encoding="utf-8"))
+
+    def test_reports_failure_when_both_providers_are_unavailable(self) -> None:
         data = json.loads(snapshot())
-        data["output"]["go"] = {"error": {"code": "auth", "message": "fixture-secret"}}
+        for provider in ("go", "codex"):
+            data["output"][provider] = {"error": {"code": "schema", "message": "fixture-secret"}}
 
         result = self.run_left(json.dumps(data))
 
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Codex 남음: 7d 57%", result.stdout)
+        self.assertEqual(len(result.stdout.splitlines()), 3)
+        self.assertNotIn("남음:", result.stdout)
         self.assertNotIn("fixture-secret", result.stdout + result.stderr)
 
     def test_sanitizes_output_when_opencode_fails(self) -> None:

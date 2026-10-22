@@ -67,7 +67,7 @@ class CommandTests(unittest.TestCase):
             self.assertEqual([row[0] for row in wire.requests], ["GET", "POST"])
             self.assertFalse(self.calls.exists())
 
-    def test_preserves_provider_auth_message_and_other_provider_when_go_is_unauthorized(self) -> None:
+    def test_preserves_codex_without_shell_failure_when_go_has_a_partial_error(self) -> None:
         with service() as wire:
             data = json.loads(snapshot())
             data["output"]["go"] = {"error": {"code": "unauthorized", "message": "fixture-only-secret"}}
@@ -76,7 +76,7 @@ class CommandTests(unittest.TestCase):
 
             result = self.run_left()
 
-            self.assertEqual(result.returncode, 1)
+            self.assertEqual(result.returncode, 0)
             self.assertEqual(len(result.stdout.splitlines()), 3)
             self.assertIn("401/403", result.stdout)
             self.assertIn("Codex 남음: 7d 57%", result.stdout)

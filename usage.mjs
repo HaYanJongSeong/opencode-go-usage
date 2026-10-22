@@ -13,6 +13,7 @@ const errors = {
   cancelled: "조회가 취소되었습니다.",
   size: "사용량 응답이 크기 제한을 초과했습니다.",
   json: "사용량 서버가 올바른 JSON을 반환하지 않았습니다.",
+  expired: "구독기간 만료",
   schema: "지원되지 않거나 불완전한 사용량 형식입니다. 플러그인 계약을 확인하세요. 추정하지 않았습니다.",
 }
 class UsageError extends Error {
@@ -40,6 +41,7 @@ function windowRow(name, used, resetsAt) {
   return { name, usedPercent: percent(used), remainingPercent: Math.round((100 - used) * 100) / 100, resetsAt }
 }
 export function parseConsole(body) {
+  if (body?.access === null && body?.resumability === "access-ended") throw new UsageError("expired")
   const meters = body?.access?.meters
   requireValue(meters && typeof meters === "object")
   const rows = []
